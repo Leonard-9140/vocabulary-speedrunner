@@ -1,4 +1,4 @@
-Vocabulary Speedruner — AI-based 高效率單字記憶引擎
+# Vocabulary Speedruner — AI-based 高效率單字記憶引擎
 
 > 以真實世界的詞頻為導航，以本地 AI 為家教，讓你的單字背誦像「Speedrun」一樣迅速、精準、且充滿智慧。
 
