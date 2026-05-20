@@ -8,7 +8,7 @@ import os
 
 # Try to import gensim for direct Wiki analysis
 try:
-    from gensim.corpora import WikiCorpus
+    from gensim.corpora.wikicorpus import extract_pages, tokenize
     HAS_GENSIM = True
 except ImportError:
     HAS_GENSIM = False
@@ -52,6 +52,7 @@ def analyze_large_arabic_text_safely(filepath):
 def analyze_wiki_dump_safely(filepath):
     """
     Directly analyzes a Wikipedia XML dump without creating intermediate files.
+    Supports both .xml and .xml.bz2 formats.
     """
     if not HAS_GENSIM:
         print("錯誤：未安裝 gensim，無法直接分析維基百科 XML。請先安裝 gensim。")
@@ -67,20 +68,35 @@ def analyze_wiki_dump_safely(filepath):
     article_count = 0
 
     try:
-        # gensim's WikiCorpus automatically handles decompression and XML parsing
-        wiki = WikiCorpus(filepath, dictionary={})
+        # Determine if the file is compressed with BZ2
+        with open(filepath, 'rb') as f:
+            header = f.read(3)
         
-        for text in wiki.get_texts():
-            # text is a list of tokens already processed by gensim
+        if header == b'BZh':
+            import bz2
+            input_f = bz2.BZ2File(filepath)
+            print("檢測到 BZ2 壓縮格式，正在解壓處理...")
+        else:
+            input_f = open(filepath, 'rb')
+            print("檢測到純 XML 格式，正在直接處理...")
+
+        # Use extract_pages to iterate through articles
+        for title, text, pageid in extract_pages(input_f):
+            # tokenize the text using gensim's utility
+            tokens = tokenize(text)
+            
             cleaned_tokens = [
-                token for token in text
+                token for token in tokens
                 if arabic_pattern.match(token) and token not in arabic_stopwords
             ]
             frequency_counter.update(cleaned_tokens)
             
             article_count += 1
             if article_count % 10000 == 0:
-                print(f"  ...已處理 {article_count:,} 篇文章")
+                elapsed = time.time() - start_time
+                print(f"  ...已處理 {article_count:,} 篇文章 (耗時: {elapsed:.1f} 秒)")
+
+        input_f.close()
 
     except Exception as e:
         print(f"處理過程中發生錯誤: {e}")
