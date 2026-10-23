@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import os
 
-# 模擬 main_quiz.py 中的設定
+# 使用 GUI 相同的 Ollama API 端點進行連線診斷
 OLLAMA_MODEL = "gemma4:cloud"
 OLLAMA_API_ENDPOINT = "http://localhost:11434/api/chat"
 

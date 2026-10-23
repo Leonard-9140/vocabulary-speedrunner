@@ -7,11 +7,20 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-}
+      DATABASE_PATH: ${DATABASE_PATH:-/data/quiz_progress.sqlite3}
+      SESSION_LIFETIME_DAYS: ${SESSION_LIFETIME_DAYS:-365}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:cloud}
       OLLAMA_API_ENDPOINT: ${OLLAMA_API_ENDPOINT:-http://host.docker.internal:11434/api/chat}
       OLLAMA_CONNECT_TIMEOUT_SECONDS: ${OLLAMA_CONNECT_TIMEOUT_SECONDS:-10}
       OLLAMA_READ_TIMEOUT_SECONDS: ${OLLAMA_READ_TIMEOUT_SECONDS:-600}
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      FSRS_DESIRED_RETENTION: ${FSRS_DESIRED_RETENTION:-0.9}
+      FSRS_MAXIMUM_INTERVAL_DAYS: ${FSRS_MAXIMUM_INTERVAL_DAYS:-36500}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - quiz_progress_data:/data
     restart: unless-stopped
+
+volumes:
+  quiz_progress_data:

@@ -26,7 +26,7 @@
     <section class="hero">
       <p class="eyebrow">VOCABULARY TRAINING</p>
       <h1>讓每個單字，<em>記得更牢。</em></h1>
-      <p class="intro">根據中文意思寫出阿拉伯文。答對的單字會逐步降低出現頻率，答錯時則會再次練習。</p>
+      <p class="intro">根據中文意思寫出阿拉伯文；每次作答後，FSRS-4.5 會依記憶狀態安排複習。</p>
     </section>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -36,13 +36,14 @@
     {% if not state %}
       <section class="card welcome-card">
         <div class="welcome-icon">✳</div>
-        <div><p class="eyebrow">READY WHEN YOU ARE</p><h2>開始今天的練習</h2><p class="muted">每個單字需要累計答對 {{ win_condition|default(5) }} 次。可在右上角切換 Ollama 批改模型。</p></div>
+        <div><p class="eyebrow">READY WHEN YOU ARE</p><h2>開始今天的練習</h2><p class="muted">新單字依詞頻安排；答題後由 FSRS-4.5 根據記憶穩定度排定複習時間。學習紀錄會保存在此瀏覽器。</p></div>
         <form method="post" action="{{ url_for('start') }}"><button class="button primary" type="submit">開始測驗 <span>↗</span></button></form>
       </section>
+      {% if has_history %}<form class="reset-form" method="post" action="{{ url_for('reset_progress') }}" onsubmit="return confirm('確定清除此瀏覽器的所有單字答題紀錄並重新開始？此操作無法復原。')"><button class="text-button" type="submit">清除學習紀錄並重新開始</button></form>{% endif %}
     {% elif question %}
       <section class="progress-area">
-        <div class="progress-label"><span>學習進度</span><strong>{{ mastered }} <small>/ {{ total }} 精通</small></strong></div>
-        <div class="progress-track"><span style="width: {{ (mastered / total * 100) if total else 0 }}%"></span></div>
+        <div class="progress-label"><span>複習排程</span><strong>{{ reviewed_count }} <small>/ {{ total }} 已開始</small><small> · {{ due_count }} 到期</small></strong></div>
+        <div class="progress-track"><span style="width: {{ (reviewed_count / total * 100) if total else 0 }}%"></span></div>
       </section>
       <section class="card usage-card" aria-labelledby="usage-title">
         <div class="usage-heading"><div><p class="eyebrow">OLLAMA CLOUD · 本次測驗</p><h2 id="usage-title">Cloud 模型用量</h2></div><span class="usage-calls">{{ state.cloud_calls }} 次請求</span></div>
@@ -55,7 +56,7 @@
         {% if not state.cloud_usage_complete %}<p class="usage-note usage-warning">* 部分回應未提供 token 數，以上合計為已回報部分。</p>{% endif %}
       </section>
       <section class="card quiz-card">
-        <div class="question-meta"><span class="question-number">今日練習</span><span class="frequency">語料詞頻權重 <b>{{ '{:,.0f}'.format(question.frequency) }}</b></span></div>
+        <div class="question-meta"><span class="question-number">{{ '新單字' if progress[question.arabic_word].card_state == 'new' else '到期複習' }}</span><span class="frequency">語料詞頻 <b>{{ '{:,.0f}'.format(question.frequency) }}</b></span></div>
         <p class="prompt-label">這個中文意思，阿拉伯文怎麼說？</p>
         <div class="meaning" lang="zh-Hant">{{ question.translation }}</div>
         <form class="answer-form" method="post" action="{{ url_for('answer') }}">
@@ -68,13 +69,13 @@
           <p class="grading-status" aria-live="polite" hidden>正在等待 Ollama 批改，模型運算可能需要一些時間…</p>
         </form>
         {% if state.feedback %}
-          <div class="feedback {{ 'good' if state.feedback_correct else 'bad' }}" role="status"><span class="feedback-icon">{{ '✓' if state.feedback_correct else '!' }}</span><div><strong>{{ state.feedback }}</strong><p>正確寫法：<b class="arabic-answer" lang="ar" dir="rtl">{{ question.arabic_word }}</b><span class="count">答對 {{ state.correct[state.current] }} / {{ win_condition }} 次</span></p></div></div>
+          <div class="feedback {{ 'good' if state.feedback_correct else 'bad' }}" role="status"><span class="feedback-icon">{{ '✓' if state.feedback_correct else '!' }}</span><div><strong>{{ state.feedback }}</strong><p>正確寫法：<b class="arabic-answer" lang="ar" dir="rtl">{{ question.arabic_word }}</b><span class="count">FSRS：{{ 'Good (3)' if state.feedback_correct else 'Again (1)' }} · 下次約 {{ state.last_interval_days }} 天後</span></p></div></div>
           <form method="post" action="{{ url_for('next_question') }}"><button class="button primary next-button" type="submit">下一題 <span>→</span></button></form>
         {% endif %}
       </section>
-      <form class="reset-form" method="post" action="{{ url_for('reset') }}"><button class="text-button" type="submit">重新開始本次測驗</button></form>
+      <form class="reset-form" method="post" action="{{ url_for('reset') }}"><button class="text-button" type="submit">結束本次測驗（保留學習紀錄）</button></form>
     {% else %}
-      <section class="card complete-card"><div class="complete-star">✦</div><p class="eyebrow">SESSION COMPLETE</p><h2>太棒了，全部精通！</h2><p class="muted">本次清單中的 {{ total }} 個單字都已達成練習目標。</p><form method="post" action="{{ url_for('start') }}"><button class="button primary" type="submit">再練習一次 <span>↗</span></button></form></section>
+      <section class="card complete-card"><div class="complete-star">✦</div><p class="eyebrow">REVIEWS UP TO DATE</p><h2>目前沒有到期單字</h2><p class="muted">已有 {{ reviewed_count }} / {{ total }} 個單字進入 FSRS 複習排程。{% if next_due_in_days is not none %}最早一題約 {{ '%.1f'|format(next_due_in_days) }} 天後到期。{% else %}按「開始測驗」可繼續加入新單字。{% endif %}紀錄已保存。</p><form method="post" action="{{ url_for('reset_progress') }}" onsubmit="return confirm('清除所有學習紀錄並重新開始嗎？此操作無法復原。')"><button class="button primary" type="submit">清除紀錄並重新開始 <span>↗</span></button></form></section>
     {% endif %}
     <footer><span>OLLAMA LOCAL OR CLOUD · YOUR PROGRESS STAYS IN THIS BROWSER</span><span>阿拉伯文顯示方向已設定為 RTL</span></footer>
   </main>

@@ -8,3 +8,6 @@ dev_log
 !.env.example
 FILE_INVENTORY.md
 .env
+quiz_progress.sqlite3*
+*.sqlite*
+*.db
