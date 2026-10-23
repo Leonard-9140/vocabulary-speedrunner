@@ -48,7 +48,7 @@ arabic_word,translation
 
 ## FSRS-4.5 複習排程
 
-排程依照 [FSRS-4.5 演算法版本](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm/bc401d9ed5093c66358738f4b8834f8d24ab211b)計算記憶難度 `D`、穩定度 `S` 和可回憶率 `R`。程式使用該頁列出的 FSRS-4 權重組及 FSRS-4.5 遺忘曲線：`R(t,S) = (1 + 19/81 × t/S)^(-0.5)`，並反解目標保留率以決定下次間隔。
+排程依照 [FSRS-4.5 演算法](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm/bc401d9ed5093c66358738f4b8834f8d24ab211b)計算記憶難度 `D`、穩定度 `S` 和可回憶率 `R`。程式使用該頁列出的 FSRS-4 權重組及 FSRS-4.5 遺忘曲線：`R(t,S) = (1 + 19/81 × t/S)^(-0.5)`，並反解目標保留率以決定下次間隔。
 
 GUI 目前只有正確／錯誤兩種自動判定，因此將正確映射為 FSRS `Good (3)`、錯誤映射為 `Again (1)`；不會假裝知道使用者覺得答案有多困難。FSRS 的 `Hard (2)`、`Easy (4)` 權重暫時不會使用。新單字先依它在本次清單中的 Wiki 詞頻百分位排序抽選；開始作答後，排程改由 FSRS 記憶狀態決定，Wiki 詞頻不會改寫 FSRS 間隔。
 
