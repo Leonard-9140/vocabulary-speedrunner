@@ -27,6 +27,7 @@ Arabic Sprint 是一個以 Docker 執行的阿拉伯文詞彙 speedrun 練習工
 ```bash
 ollama signin
 ollama pull gemma4:e4b
+ollama pull gemma4:cloud
 ```
 
 預設模型是 `gemma4:cloud`。測驗頁右上角可以切換到 Ollama 服務中已下載的本機模型。Docker 容器會透過 `OLLAMA_API_ENDPOINT` 連線到該 Ollama 服務。
