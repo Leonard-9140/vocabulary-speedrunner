@@ -1,41 +1,72 @@
-# Arabic Sprint（原Vocabulary Speedrunner）
+# Arabic Sprint （Vocabulary Speedrunner）
 
-以「以中文語意聯想阿拉伯文詞彙」為方向的單字練習工具。網頁GUI支援阿拉伯文由右至左顯示、Ollama本機或Cloud模型批改，可在隱私與速度間靈活切換，並以詞頻權重和答題表現安排複習。
+Arabic Sprint 是一個以 Docker 執行的阿拉伯文詞彙 speedrun 練習工具：畫面提供中文意思，使用者輸入阿拉伯文。它結合 Wiki 詞頻新字抽選、短期重練與 FSRS-4.5 長期複習，並使用 Ollama 本機或 Cloud 模型判斷非完全相同的答案。
 
-## 功能
+## 功能與頁面布局
 
-- **中文提示、阿拉伯文作答**：輸入框和答案使用RTL排版，適合阿拉伯文閱讀與輸入。
-- **自動列出可用模型**：模型選單保留 `gemma4:cloud`，並自動列出目前連線的 Ollama 服務已下載模型；新增或移除模型後，等待最多約 15 秒再重新整理即可更新。
-- **FSRS-4.5 與短期重練**：FSRS 安排長期複習；答錯單字會在完成其他三題後優先重現，題目較少時會提早重練。
-- **Cloud token 用量表**：測驗中顯示本次測驗由此GUI發出的Cloud請求數，以及Ollama回報的輸入、輸出和合計tokens。
-- **Docker 部署**：提供 Dockerfile、Compose 設定與健康檢查端點 `/healthz`。
+- **中文提示、阿拉伯文作答**：輸入框和答案採 RTL 排版。
+- **Ollama 模型選單**：保留 `gemma4:cloud`，並列出目前連線的 Ollama 服務已下載模型。模型清單約每 15 秒更新一次。
+- **FSRS-4.5 排程**：根據記憶難度、穩定度、作答結果與距離上次複習時間安排長期複習。
+- **speedrun 短期重練**：Again 題目會在完成其他三題後優先重現；沒有其他題目可作答時會提早重練。
+- **速度評分**：正確答案依個人平均作答時間與標準差分類為 Easy、Good 或 Hard。
+- **SQLite 持久化**：保存單字進度、FSRS 狀態與每次有效判分的作答時間。
+- **Docker Compose 部署**：SQLite 放在具名 volume，容器提供 `/healthz` 健康檢查端點。
 
-> 用量表只統計本次 GUI 測驗的 Cloud 請求，不代表 Ollama 帳戶方案、帳戶總用量或剩餘額度。Ollama 的回應用量指標是單次請求的 token 數；本專案不會讀取或推算帳戶餘額。精確答案比對會在本機直接判定，不呼叫模型，也不計入 Cloud 用量。
+測驗開始後，桌面版頁面分為三欄：左欄上方顯示平均作答時間和標準差，下方顯示已作答單字最近一次 FSRS 評分的圓餅圖；中欄上方顯示題庫中已作答／未作答單字比例，作答卡片置中；右欄顯示本次測驗的 Ollama Cloud 請求數與 token 用量。窄螢幕會改為單欄排列。完成測驗時統計圖表仍會顯示。
 
-## 專案檔案
+平均時間和標準差使用速度評分的有效樣本，不含 Again 後的短期重練；FSRS 圓餅圖則以每個已作答單字的**最近一次評分**計數，每個單字只算一次。
 
-| 檔案 | 用途 |
-|---|---|
-| `web_app.py` | Flask 網頁程式、題目流程、Ollama 批改及 token 用量累計。 |
-| `fsrs45.py` | FSRS-4.5 記憶狀態、遺忘曲線和複習間隔計算。 |
-| `templates/index.html` | 測驗頁面、模型選單和用量表。 |
-| `static/` | GUI 樣式與瀏覽器端互動程式。 |
-| `exam_list.csv` | 本次練習的阿拉伯文與中文對照表。 |
-| `voc_database.csv` | 單字抽題使用的詞頻資料。 |
-| `Dockerfile`, `compose.yaml` | 建置及執行容器。 |
-| `.env.example` | Docker Compose 與部署環境變數範本。 |
+> 用量表只統計本次 GUI 測驗由 `gemma4:cloud` 回報的請求和 token，不代表 Ollama 帳戶方案、帳戶總用量或剩餘額度。精確答案會在本機比對，不呼叫模型。使用 Cloud 判斷答案時，題目中文、標準阿拉伯文與使用者答案會送至 Ollama Cloud 處理。
 
-## 初次使用
+## 初次啟動
 
-第一次使用不需要自行下載詞頻資料、執行分析或清洗腳本。專案已附上預先整理好的 `voc_database.csv`（目前 2,552 筆詞頻資料）和預設練習題庫 `exam_list.csv`（目前 234 個單字）。Docker映像已包含這兩個CSV檔案，使用者不須自行清洗資料。
+### 1. 準備 Ollama
 
-首次啟動只需準備 Ollama，接著用Docker Compose建置並啟動網頁。瀏覽器進入 <http://localhost:5000> 後，按「開始測驗」即可使用內附題庫。
+在執行 Docker 的電腦安裝並啟動 Ollama。使用 Cloud 模型時，先登入 Ollama；使用本機模型時，先下載模型，例如：
 
-若要使用自己的單字表，請以 UTF-8 編碼編輯專案根目錄的 `exam_list.csv`，保留 `arabic_word,translation` 欄位，再執行 `docker compose up -d --build` 重新建置。單字頻率會從內附的 `voc_database.csv` 查找；新單字若不在其中，仍會以預設權重出題，不需要自行執行分析腳本。
+```bash
+ollama signin
+ollama pull gemma4:e4b
+```
 
-## 單字表格式
+預設模型是 `gemma4:cloud`。測驗頁右上角可以切換到 Ollama 服務中已下載的本機模型。Docker 容器會透過 `OLLAMA_API_ENDPOINT` 連線到該 Ollama 服務。
 
-`exam_list.csv` 使用 UTF-8 編碼，第一列為欄位名稱：
+### 2. 啟動 Docker Compose
+
+在專案目錄執行：
+
+```bash
+docker compose up -d --build
+```
+
+瀏覽器開啟 <http://localhost:5000>，按「開始測驗」即可使用專案內附題庫。查看容器輸出：
+
+```bash
+docker compose logs -f
+```
+
+停止服務：
+
+```bash
+docker compose down
+```
+
+若修改程式、樣式、頁面或 CSV，重新建置並啟動：
+
+```bash
+docker compose up -d --build
+```
+
+本專案以 Docker 作為使用與部署方式；Docker 映像不包含 Ollama 模型或 Ollama 服務本身。
+
+## 題庫與詞頻資料
+
+第一次使用不需要自行下載語料或執行資料清洗。Docker 映像已包含：
+
+- `exam_list.csv`：預設 234 個練習單字。
+- `voc_database.csv`：預先整理的阿拉伯語詞頻資料，目前約 2,552 筆。
+
+自訂題庫時，編輯專案根目錄的 `exam_list.csv`，使用 UTF-8 編碼並保留以下欄位，再重建容器：
 
 ```csv
 arabic_word,translation
@@ -44,115 +75,115 @@ arabic_word,translation
 بيت,房子
 ```
 
-`voc_database.csv` 提供新單字抽選用的詞頻權重。若題庫中的單字不在詞頻資料庫，仍會納入練習並使用中間權重 `1.0`；頁面會將它標示為「詞頻未知」。
+新字抽選時，程式只用題庫中**有詞頻資料的單字**計算百分位權重，範圍為 `0.5` 至 `1.5`。未收錄詞不會被視為最低頻詞，而是使用中間權重 `1.0`；頁面會標示「詞頻未知」。單字開始作答後，後續複習由 FSRS 安排，詞頻不會更改 FSRS 間隔。
 
-## FSRS-4.5 複習排程與模型判斷準則
+## 判分與複習方式
 
-排程依照 [FSRS-4.5 演算法](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm/bc401d9ed5093c66358738f4b8834f8d24ab211b)計算記憶難度 `D`、穩定度 `S` 和可回憶率 `R`。程式使用該頁列出的 FSRS-4 權重組及 FSRS-4.5 遺忘曲線：`R(t,S) = (1 + 19/81 × t/S)^(-0.5)`，並反解目標保留率以決定下次間隔。
+### 答案判定
 
-答案與標準答案完全相同時直接判定正確。不一致時，程式先忽略阿拉伯文附加符號並計算兩答案共有的阿拉伯字母數（重複字母按出現次數計）；共有至少三個字母時，才請模型判斷是否為同一詞的單複數變化，確認後視為正確。若不是可接受答案，模型再按詞意遠近分為 `Hard (2)`（意思接近但答案不合）或 `Again (1)`（詞意不相關或錯誤）。這是對答題結果的操作性分類，近義或相關詞不會自動當成正確答案。
+1. 答案與標準答案完全相同時直接判為正確，不呼叫模型。
+2. 答案不一致時，程式忽略阿拉伯文附加符號，計算兩答案共有的阿拉伯字母數；重複字母按出現次數計。共有至少三個字母時，模型會先判斷是否為同一詞的單複數變化。確認後視為正確。
+3. 其他答案由模型依詞意遠近分類：意思接近但不符合標準答案為 `Hard (2)`；意思不相關或錯誤為 `Again (1)`。近義詞或相關詞不會自動視為正確。
 
-每題從顯示到送出答案都會記錄作答秒數。對判定正確的答案，系統會以這位使用者先前已判分題目的平均時間和樣本標準差分類：低於平均值一個標準差以上為 `Easy (4)`；落在平均值正負一個標準差內為 `Good (3)`；高於平均值一個標準差以上為 `Hard (2)`。至少要有兩筆可用的先前作答時間才啟用速度分類，資料不足時正確答案使用 `Good (3)`。Again 之後的短期重練題仍記錄作答秒數，但不納入速度基準，也不因剛看過答案而判為 Easy。語意接近但不符合標準答案的 `Hard (2)` 仍依模型分類，不會因作答快慢改成 Easy 或 Good。速度分類出的 Hard 雖作答較慢仍屬正確，會記入正確次數；模型判定的語意 Hard 會記為非標準答案。
+### Easy、Good、Hard 的速度評分
 
-新單字先依本次清單內**已收錄詞彙**的 Wiki 詞頻百分位抽選，權重範圍為 `0.5` 至 `1.5`；計算百分位時不納入未收錄詞。詞頻未知的單字固定使用中間權重 `1.0`，不會被當成最低頻詞。開始作答後，排程改由 FSRS 記憶狀態決定，Wiki 詞頻不會改寫 FSRS 間隔。`Hard (2)` 會套用 FSRS 的 Hard 成功回憶公式，不增加遺忘次數；只有 `Again (1)` 才代表忘記。
+每題從顯示到送出答案都會記錄作答秒數。只有正確答案會依個人速度分類：
 
-若有 Again，該單字會另外進入短期重練列，在使用者完成其他 3 題後優先重現；若沒有其他可答題，則提早重練，避免小題庫卡住。再次答錯會重新排入短期重練列；答對後移出，繼續依 FSRS 長期間隔複習。短期重練列是配合 speedrun 的應用層流程；FSRS 主排程仍以天計算，四捨五入為整天，最短 1 天，預設最長 36,500 天，且不加隨機間隔擾動。測驗頁面上的「暫停測驗」會凍結目前題目的計時；恢復後從暫停前的累計作答時間繼續。模型判分等待時間不列入作答時間。
+- 低於平均作答時間一個標準差以上：`Easy (4)`。
+- 位於平均值正負一個標準差內：`Good (3)`。
+- 高於平均作答時間一個標準差以上：`Hard (2)`。
 
-每次答題會將作答秒數和判定結果新增到 SQLite 作答歷史，並在單字進度中保存 `stability`、`difficulty`、預定到期時間、複習次數、遺忘次數及最近評分。清除學習紀錄時也會刪除該使用者的作答時間歷史。舊資料庫若已有最後作答時間和結果，啟動時會以最近一次二元結果建立初始 FSRS 狀態；舊紀錄沒有作答秒數，無法還原歷史速度。
+平均值和樣本標準差使用該使用者先前的有效作答時間；至少要有兩筆資料才啟用速度分類。資料不足時正確答案記為 Good。模型判定的語意 Hard 不會被速度覆寫。短期重練仍記錄時間，但不納入速度基準，也不會因為剛看過答案而判為 Easy。
 
-### 參考資料
+### 短期重練與 FSRS-4.5
 
-- Ye, J., Su, J., & Cao, Y. (2022). *A Stochastic Shortest Path Algorithm for Optimizing Spaced Repetition Scheduling*. KDD 2022. [DOI: 10.1145/3534678.3539081](https://doi.org/10.1145/3534678.3539081)
-- Su, J., Ye, J., Nie, L., Cao, Y., & Chen, Y. (2023). *Optimizing Spaced Repetition Schedule by Capturing the Dynamics of Memory*. IEEE Transactions on Knowledge and Data Engineering, 35(10), 10085–10097. [DOI: 10.1109/TKDE.2023.3251721](https://doi.org/10.1109/TKDE.2023.3251721)
-- Open Spaced Repetition. *The Algorithm: FSRS-4.5* (固定版本，含公式與預設權重). [GitHub Wiki](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm/bc401d9ed5093c66358738f4b8834f8d24ab211b)
-- 阿拉伯語詞頻資料來源： [Wikimedia Arabic Wikipedia dumps](https://dumps.wikimedia.org/arwiki/)。本專案提供已整理的 `voc_database.csv`，一般使用者不需下載 dump 或自行分析。
+Again 題目會進入持久化短期重練列，完成其他三題後優先重現；再次答錯會重新排入。沒有其他可答題時會提早重練，避免小題庫卡住。短期重練答對後移出重練列，再依 FSRS 長期間隔複習。FSRS 主排程最短間隔仍是一整天；短期重練列是 speedrun 使用的額外流程。
 
-## 啟動方式
+長期排程依照指定版本的 [FSRS-4.5 演算法](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm/bc401d9ed5093c66358738f4b8834f8d24ab211b)，計算記憶難度 `D`、穩定度 `S` 和可回憶率 `R`。程式使用該頁列出的 FSRS-4 預設權重與 FSRS-4.5 遺忘曲線：
 
-### 1. 準備 Ollama
-
-安裝並啟動 Ollama。登入帳號以使用 Cloud 模型；若要使用本機模型，先用 `ollama pull` 下載，之後 GUI 會自動將它列入選單：
-
-```bash
-ollama signin
-ollama pull gemma4:e4b
+```text
+R(t,S) = (1 + 19/81 × t/S)^(-0.5)
 ```
 
-`gemma4:e4b` 是本機模型範例，可換成其他 Ollama 支援的模型名稱。Cloud 模型需登入 Ollama 帳號；本機模型需要足夠的本機運算資源。
+FSRS 評分為 `Again (1)`、`Hard (2)`、`Good (3)`、`Easy (4)`。排程先出已到期短期重練，再出 FSRS 到期複習；沒有到期卡片時才抽新字。到期複習依預測可回憶率由低至高挑選。間隔以天計算、四捨五入為整天，預設最短一天、最長 36,500 天，不加隨機間隔擾動。
 
-GUI 會向 `OLLAMA_API_ENDPOINT` 所指向的 Ollama 服務查詢已下載模型清單（`/api/tags`），約每 15 秒更新一次快取。Docker 部署時，清單來自容器連線到的 Ollama 主機；請在那台主機下載所需模型。選單也會保留 `gemma4:cloud` 和環境設定的預設模型；若 Ollama 無法連線，則無法列出其他已下載模型。
+測驗中的「暫停測驗」會凍結目前題目計時；恢復後從暫停前的累計時間繼續。模型批改等待時間不計入作答時間。
 
-### 使用 Docker Compose
+## 資料保存與重設
 
-在專案目錄執行：
+每個瀏覽器首次使用會取得匿名學習識別碼，放在簽章 Cookie 中；Cookie 預設有效一年。不同瀏覽器或清除 Cookie 後會建立新的學習檔案，沒有帳號或跨裝置同步功能。
 
-```bash
-docker compose up -d --build
-```
+SQLite 會保存：
 
-瀏覽器開啟 <http://localhost:5000>。Compose 會將容器連到主機的 Ollama 服務（預設 `host.docker.internal:11434`）。若系統使用舊版 Compose，也可用 `docker-compose up -d --build`；遇到舊版 Compose 重建容器錯誤時，請改用 Docker Compose v2 的 `docker compose` 指令。
+- 每個單字的答對／答錯次數、最近作答時間、FSRS 難度與穩定度、下次到期時間和目前評分。
+- 每次有效判分的評分、作答秒數及時間統計是否採用。
+- Again 短期重練的進度。
 
-停止服務：
+Docker Compose 將資料庫放在 `quiz_progress_data` 具名 volume。`docker compose down` 不會刪除學習資料；**不要執行 `docker compose down -v`，除非要刪除該 volume 和所有學習紀錄**。頁面上的「清除學習紀錄」會刪除目前瀏覽器識別碼對應的進度與作答時間歷史。SQLite 檔案和暫存檔已排除於 Git 與 Docker build context。
 
-```bash
-docker compose down
-```
-
-## 使用頁面
-
-1. 按「開始測驗」。
-2. 根據中文提示輸入阿拉伯文。
-3. 頁面會先直接比對答案；需要語意判斷時才呼叫目前選用的 Ollama 模型。
-4. 查看批改結果和 Cloud token 用量。若選用本機 E4B，Cloud 用量表不會因本機請求增加。
-5. 按「下一題」繼續；若目前沒有到期題目，頁面會顯示預計下一次複習時間。可在右上角切換模型。
-
-答題次數、最後選取時間、最後作答時間、FSRS 記憶狀態及結果會保存到 SQLite。每個瀏覽器首次使用時會建立匿名學習識別碼；同一瀏覽器下次開啟可延續紀錄。清除瀏覽器 Cookie 會建立新的學習檔案，舊資料仍留在資料庫中。測驗畫面的「清除學習紀錄」會刪除此瀏覽器識別碼對應的資料。
-
-Docker Compose 會將 SQLite 檔案存放在名為 `quiz_progress_data` 的具名 volume；一般執行 `docker compose down` 不會刪除它。請勿使用 `docker compose down -v`，除非要連同學習紀錄一起刪除。資料庫與 SQLite 暫存檔已加入 `.gitignore` 和 `.dockerignore`，不會同步到 Git 或打包進映像。部署到雲端時，需為 `/data` 掛載持久化磁碟，並維持 `FLASK_SECRET_KEY` 不變，才能在容器重建後沿用同一個瀏覽器識別碼。
-
-目前 SQLite 適合單一應用實例。若要同時執行多個容器副本，應改用 PostgreSQL 等共用資料庫，而不是讓多個副本共用 SQLite 檔案。Cloud 模型會收到題目中文、目標阿拉伯文與使用者答案；使用 Cloud 即表示這些內容會送至 Ollama Cloud 處理。
+SQLite 設定適合單機、單一應用實例。既有資料庫會在應用啟動時自動增加所需欄位；舊紀錄沒有作答時間，因此無法還原舊的速度基準。若移除 Cookie，舊識別碼的資料仍留在 volume 中，但頁面無法自動找回該識別碼。
 
 ## 設定
 
-Compose 可透過專案根目錄的 `.env` 設定下列變數。可先複製範本：
+Compose 會讀取專案根目錄 `.env`。一般本機開發可不建立 `.env`，直接使用 `compose.yaml` 的開發預設。部署環境可複製範本：
 
 ```bash
 cp .env.example .env
 ```
 
-`.env.example` 是生產部署範本，預設 `APP_ENV=production`。啟動前必須填入 `FLASK_SECRET_KEY` 和可從容器連線的 `OLLAMA_API_ENDPOINT`。若只是本機測試，可刪除 `.env` 讓 Compose 使用開發預設，或將 `APP_ENV` 設為 `development` 並使用本機適用的 Ollama 位址。
+範本使用 `APP_ENV=production`；啟動前必須設定至少 32 字元的 `FLASK_SECRET_KEY`，並將 `OLLAMA_API_ENDPOINT` 設為容器可連線的 Ollama `/api/chat` 位址。不要在雲端部署設定中使用 `host.docker.internal`。
 
 | 變數 | 預設值 | 說明 |
 |---|---|---|
-| `OLLAMA_MODEL` | `gemma4:cloud` | 預設模型；頁面仍可切換到另一個已設定選項。 |
-| `OLLAMA_API_ENDPOINT` | `http://host.docker.internal:11434/api/chat` | 容器可連線的 Ollama `/api/chat` 位址。 |
+| `OLLAMA_MODEL` | `gemma4:cloud` | 預設批改模型；頁面可以切換模型。 |
+| `OLLAMA_API_ENDPOINT` | `http://host.docker.internal:11434/api/chat` | 容器連線到的 Ollama API 位址。 |
 | `OLLAMA_CONNECT_TIMEOUT_SECONDS` | `10` | 建立 Ollama 連線的等待秒數。 |
-| `OLLAMA_READ_TIMEOUT_SECONDS` | `600` | 等待模型完成回應的秒數。慢速本機模型可適度提高。 |
+| `OLLAMA_READ_TIMEOUT_SECONDS` | `600` | 等待模型回應的秒數；慢速模型可調高。 |
 | `OLLAMA_KEEP_ALIVE` | `30m` | Ollama 保留已載入模型的時間。 |
-| `FSRS_DESIRED_RETENTION` | `0.9` | FSRS 目標保留率；必須大於 0 且小於 1。 |
-| `FSRS_MAXIMUM_INTERVAL_DAYS` | `36500` | FSRS 單次複習間隔上限（天）。 |
-| `DATABASE_PATH` | `quiz_progress.sqlite3`（本機）／`/data/quiz_progress.sqlite3`（Compose） | SQLite 學習紀錄資料庫路徑。 |
-| `SESSION_LIFETIME_DAYS` | `365` | 瀏覽器匿名學習識別碼 Cookie 的有效天數。 |
-| `APP_ENV` | Compose 為 `development` | 生產環境請設為 `production`。 |
-| `FLASK_SECRET_KEY` | 空白 | 生產環境必須設定至少 32 字元的隨機密鑰。 |
+| `FSRS_DESIRED_RETENTION` | `0.9` | FSRS 目標保留率，必須大於 0 且小於 1。 |
+| `FSRS_MAXIMUM_INTERVAL_DAYS` | `36500` | FSRS 長期複習間隔上限（天）。 |
+| `DATABASE_PATH` | `/data/quiz_progress.sqlite3`（Compose） | SQLite 學習紀錄資料庫位置。 |
+| `SESSION_LIFETIME_DAYS` | `365` | 匿名學習識別 Cookie 的有效天數。 |
+| `APP_ENV` | `development`（Compose） | 生產環境設為 `production`。 |
+| `FLASK_SECRET_KEY` | 空白 | 生產環境必填，至少 32 字元。 |
 
-設定變更後重建容器：
+使用 Docker 產生密鑰：
+
+```bash
+docker run --rm python:3.12-slim python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+修改 `.env` 後重建容器：
 
 ```bash
 docker compose up -d --build
 ```
 
-產生密鑰：
+## 常見問題
 
-```bash
-python3 -c 'import secrets; print(secrets.token_hex(32))'
-```
-## 部署注意事項
+- **頁面無法連到 Ollama**：確認 Ollama 正在執行，且 `OLLAMA_API_ENDPOINT` 是從容器內可連線的位址。雲端部署不能使用 `host.docker.internal`。
+- **模型回應超時**：預設等待 600 秒，可在 `.env` 調高 `OLLAMA_READ_TIMEOUT_SECONDS`，然後重建容器。
+- **模型選單沒有列出本機模型**：清單來自 `OLLAMA_API_ENDPOINT` 對應服務的 `/api/tags`。先確認該 Ollama 主機已下載模型，並等待最多約 15 秒讓清單快取更新。
+- **舊版 `docker-compose` 重建容器出現錯誤**：建議安裝並使用 Docker Compose v2 的 `docker compose` 指令。
+- **確認網頁服務狀態**：執行 `docker compose ps`；容器健康檢查路徑為 `/healthz`。查看詳細錯誤可用 `docker compose logs -f`。
 
-建置映像：
+## 專案檔案
 
-```bash
-docker build -t vocabulary-speedrunner:latest .
-```
+| 檔案 | 用途 |
+|---|---|
+| `web_app.py` | Flask 頁面、抽題、評分、計時、統計與 SQLite 資料存取。 |
+| `fsrs45.py` | FSRS-4.5 記憶狀態、遺忘曲線和間隔公式。 |
+| `templates/index.html` | 測驗頁面與三欄儀表板結構。 |
+| `static/style.css` | RTL 介面、桌面三欄布局和窄螢幕樣式。 |
+| `static/app.js` | 作答送出時的批改等待提示。 |
+| `exam_list.csv` | 預設中文提示與阿拉伯文答案。 |
+| `voc_database.csv` | 新單字抽選用的已整理詞頻資料。 |
+| `Dockerfile`, `compose.yaml` | Docker 映像、服務與持久化 volume 設定。 |
+| `.env.example` | 生產部署環境變數範本。 |
 
-請將映像部署到可執行容器的平台，將 HTTP 流量導向容器的 `5000` 連接埠，並設定 `APP_ENV=production`、`FLASK_SECRET_KEY` 與可連線的 `OLLAMA_API_ENDPOINT`。健康檢查路徑為 `/healthz`。本映像不包含 Ollama 模型，也不提供 Ollama 服務；部署環境若須使用雲端模型必須自行連接已登入且可用的 Ollama Cloud 或自行管理的 Ollama 主機並且避免將未受保護的 Ollama API 暴露至公網。
+## 參考資料
+
+- Open Spaced Repetition. *The Algorithm: FSRS-4.5*（指定固定版本，含公式與預設權重）. [GitHub Wiki](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm/bc401d9ed5093c66358738f4b8834f8d24ab211b)
+- Ye, J., Su, J., & Cao, Y. (2022). *A Stochastic Shortest Path Algorithm for Optimizing Spaced Repetition Scheduling*. KDD 2022. [DOI: 10.1145/3534678.3539081](https://doi.org/10.1145/3534678.3539081)
+- Su, J., Ye, J., Nie, L., Cao, Y., & Chen, Y. (2023). *Optimizing Spaced Repetition Schedule by Capturing the Dynamics of Memory*. IEEE Transactions on Knowledge and Data Engineering, 35(10), 10085–10097. [DOI: 10.1109/TKDE.2023.3251721](https://doi.org/10.1109/TKDE.2023.3251721)
+- 阿拉伯語詞頻原始資料： [Wikimedia Arabic Wikipedia dumps](https://dumps.wikimedia.org/arwiki/)。本專案附上已整理的 `voc_database.csv`，一般使用者無須下載 dump 或自行分析。
