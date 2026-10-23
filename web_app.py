@@ -1,11 +1,13 @@
 """Browser based Arabic vocabulary quiz."""
 
 import csv
+from collections import Counter
 from contextlib import contextmanager
 import os
 import random
 import re
 import sqlite3
+import statistics
 import time
 import unicodedata
 import uuid
@@ -150,6 +152,21 @@ def initialize_database():
                 PRIMARY KEY (learner_id, word)
             )
         """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS learner_answer_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                learner_id TEXT NOT NULL,
+                word TEXT NOT NULL,
+                grade INTEGER NOT NULL,
+                answer_correct INTEGER NOT NULL,
+                response_seconds REAL NOT NULL,
+                answered_at REAL NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE INDEX IF NOT EXISTS learner_answer_history_by_learner
+            ON learner_answer_history (learner_id, answered_at)
+        """)
         existing_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(learner_word_progress)")
         }
@@ -258,6 +275,7 @@ def has_learning_history(learner_id):
 
 def clear_learning_history(learner_id):
     with database_connection() as connection:
+        connection.execute("DELETE FROM learner_answer_history WHERE learner_id = ?", (learner_id,))
         connection.execute("DELETE FROM learner_word_progress WHERE learner_id = ?", (learner_id,))
 
 
@@ -270,8 +288,36 @@ def record_selection(learner_id, word):
         """, (learner_id, word, time.time()))
 
 
-def record_answer(learner_id, word, correct):
-    grade = 3 if correct else 1
+def get_answer_time_stats(learner_id):
+    with database_connection() as connection:
+        rows = connection.execute(
+            "SELECT response_seconds FROM learner_answer_history WHERE learner_id = ?",
+            (learner_id,),
+        ).fetchall()
+    durations = [row["response_seconds"] for row in rows]
+    if len(durations) < 2:
+        return {"count": len(durations), "mean": None, "stdev": None}
+    return {
+        "count": len(durations),
+        "mean": statistics.mean(durations),
+        "stdev": statistics.stdev(durations),
+    }
+
+
+def apply_timing_grade(grade, response_seconds, stats):
+    """Use prior answer-time mean +/- sample SD to rate correct answers."""
+    if grade != 3 or stats["count"] < 2:
+        return grade
+    mean = stats["mean"]
+    stdev = stats["stdev"]
+    if response_seconds < mean - stdev:
+        return 4
+    if response_seconds > mean + stdev:
+        return 2
+    return 3
+
+
+def record_answer(learner_id, word, grade, answer_correct, response_seconds):
     now = time.time()
     with database_connection() as connection:
         previous = connection.execute("""
@@ -322,9 +368,14 @@ def record_answer(learner_id, word, correct):
                 lapse_count = excluded.lapse_count,
                 card_state = excluded.card_state,
                 last_grade = excluded.last_grade
-        """, (learner_id, word, int(correct), int(not correct), now, int(correct),
+        """, (learner_id, word, int(answer_correct), int(not answer_correct), now, int(answer_correct),
               scheduled["stability"], scheduled["difficulty"], scheduled["due_at"],
               review_count, lapse_count, grade))
+        connection.execute("""
+            INSERT INTO learner_answer_history
+                (learner_id, word, grade, answer_correct, response_seconds, answered_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (learner_id, word, grade, int(answer_correct), response_seconds, now))
     return scheduled
 
 
@@ -388,19 +439,37 @@ def normalize_arabic(value):
     return re.sub(r"[\u064b-\u065f\u0670\u0640]", "", value)
 
 
-def grade_answer(target, meaning, answer, all_words, model):
+def shared_arabic_letter_count(left, right):
+    """Count shared Arabic letter occurrences, ignoring order and diacritics."""
+    left_letters = [char for char in normalize_arabic(left)
+                    if "ARABIC" in unicodedata.name(char, "") and char.isalpha()]
+    right_letters = [char for char in normalize_arabic(right)
+                     if "ARABIC" in unicodedata.name(char, "") and char.isalpha()]
+    return sum((Counter(left_letters) & Counter(right_letters)).values())
+
+
+def grade_answer(target, meaning, answer, model):
     """Fast exact check followed by the selected Ollama model."""
     if normalize_arabic(answer) == normalize_arabic(target):
-        return True, "完全正確！", {"called": False}
-    if answer.strip() in all_words and answer.strip() != target:
-        return False, "這是清單中的另一個單字。", {"called": False}
+        return 3, "完全正確！", {"called": False}
+
+    shared_letters = shared_arabic_letter_count(target, answer)
+    number_check = (
+        "先檢查學生答案是否只是標準答案同一詞彙的單數／複數變化。"
+        "只有確定是同一詞的單複數形式才判 Correct；同義詞、派生詞、相關詞或拼寫相似都不能因此判 Correct。"
+        if shared_letters >= 3 else
+        "兩者相同字母少於三個，不要判為單複數變化，直接依詞意遠近分類。"
+    )
 
     prompt = f"""你是專業阿拉伯語教師。學生根據中文意思寫阿拉伯文。
 中文意思：{meaning}
 預期答案：{target}
 學生答案：{answer}
-只在答案確實是同一個詞、可接受的詞形或輕微拼寫錯誤時判為 Correct；其他情況判為 Incorrect。
-只回覆 Correct 或 Incorrect。"""
+{number_check}
+若確認是同一詞的單數／複數變化，判為 Correct。
+否則，若學生答案本身的詞意與中文提示／標準答案接近，雖非可接受的標準答案，判為 Hard（例如相關概念或容易混淆的近義詞）。
+若詞意不相關、完全錯誤或無法辨認，判為 Again。
+只回覆一個標籤：Correct、Hard 或 Again，不要附加說明。"""
     try:
         response = requests.post(OLLAMA_API_ENDPOINT, json={
             "model": model,
@@ -419,8 +488,16 @@ def grade_answer(target, meaning, answer, all_words, model):
             }
         else:
             usage = {"called": True, "input": None, "output": None}
-        correct = "correct" in result and "incorrect" not in result
-        return correct, "AI 判定正確。" if correct else "答案不正確。", usage
+        labels = re.findall(r"\b(correct|hard|again)\b", result)
+        if len(labels) != 1:
+            return None, "模型未能提供有效的 Correct／Hard／Again 分類，請重試。", usage
+        grade = {"again": 1, "hard": 2, "correct": 3}[labels[0]]
+        messages = {
+            1: "答案不正確，安排重新學習。",
+            2: "答案詞意接近，但不是標準答案；記為 Hard。",
+            3: "AI 判定為可接受答案（含同一詞的單複數變化）。",
+        }
+        return grade, messages[grade], usage
     except requests.exceptions.Timeout:
         return None, (f"Ollama 正在運算，但超過 {int(OLLAMA_READ_TIMEOUT_SECONDS)} 秒仍未完成。"
                       "請稍候再試，或提高 OLLAMA_READ_TIMEOUT_SECONDS。"), None
@@ -442,6 +519,12 @@ def new_quiz_state():
         "last_interval_days": None,
         "feedback": None,
         "feedback_correct": False,
+        "feedback_grade": None,
+        "feedback_class": "bad",
+        "question_started_at": None,
+        "pending_answer_seconds": 0.0,
+        "paused": False,
+        "pause_started_at": None,
         "answered": False,
     }
 
@@ -486,6 +569,10 @@ def choose_question(state):
     state["next_due_at"] = None
     state["last_interval_days"] = None
     state["answered"] = False
+    state["question_started_at"] = now
+    state["pending_answer_seconds"] = 0.0
+    state["paused"] = False
+    state["pause_started_at"] = None
     state["feedback"] = None
     record_selection(learner_id, words[index]["arabic_word"])
     session["quiz"] = state
@@ -517,6 +604,11 @@ def home():
     state.setdefault("cloud_output_tokens", 0)
     state.setdefault("cloud_calls", 0)
     state.setdefault("cloud_usage_complete", True)
+    state.setdefault("question_started_at", time.time())
+    state.setdefault("pending_answer_seconds", 0.0)
+    state.setdefault("paused", False)
+    state.setdefault("pause_started_at", None)
+    session["quiz"] = state
     progress = get_progress(learner_id, words)
     index = state["current"]
     question = words[index] if index is not None and 0 <= index < len(words) else None
@@ -565,7 +657,8 @@ def change_model():
 @app.post("/answer")
 def answer():
     state = session.get("quiz")
-    if not state or state.get("version") != 4 or state["current"] is None or state["answered"]:
+    if (not state or state.get("version") != 4 or state["current"] is None
+            or state["answered"] or state.get("paused")):
         return redirect(url_for("home"))
     learner_id = get_learner_id()
     words = load_words()
@@ -582,10 +675,15 @@ def answer():
         session["quiz"] = state
         return redirect(url_for("home"))
 
+    submitted_at = time.time()
+    state["question_started_at"] = state.get("question_started_at") or submitted_at
+    state.setdefault("pending_answer_seconds", 0.0)
+    response_seconds = state["pending_answer_seconds"] + max(
+        0.0, submitted_at - state["question_started_at"]
+    )
     selected_model = session.get("ollama_model", OLLAMA_MODEL)
-    correct, message, usage = grade_answer(
-        word["arabic_word"], word["translation"], answer_text,
-        {item["arabic_word"] for item in words}, selected_model)
+    grade, message, usage = grade_answer(
+        word["arabic_word"], word["translation"], answer_text, selected_model)
     if selected_model == "gemma4:cloud" and usage and usage["called"]:
         state["cloud_calls"] += 1
         if usage["input"] is None or usage["output"] is None:
@@ -593,15 +691,56 @@ def answer():
         else:
             state["cloud_input_tokens"] += usage["input"]
             state["cloud_output_tokens"] += usage["output"]
-    state["feedback"] = message
-    state["feedback_correct"] = correct
-    if correct is None:
+    if grade is None:
+        state["feedback"] = message
+        state["feedback_correct"] = False
+        state["feedback_grade"] = None
+        state["feedback_class"] = "bad"
+        state["pending_answer_seconds"] = response_seconds
+        # Model latency occurs after submission and must not count as thinking time.
+        state["question_started_at"] = time.time()
         state["answered"] = False
         session["quiz"] = state
         return redirect(url_for("home"))
-    schedule = record_answer(learner_id, word["arabic_word"], correct)
+
+    answer_correct = grade == 3
+    stats = get_answer_time_stats(learner_id)
+    grade = apply_timing_grade(grade, response_seconds, stats)
+    if answer_correct and grade == 4:
+        message = "答對且作答速度快於個人平均一個標準差以上，記為 Easy。"
+    elif answer_correct and grade == 2:
+        message = "答案正確，但作答時間較長，依個人平均與標準差記為 Hard。"
+    elif answer_correct and stats["count"] < 2:
+        message = "答案正確；累積足夠作答紀錄後，會開始依速度調整難度。"
+    state["feedback"] = message
+    state["feedback_correct"] = answer_correct
+    state["feedback_grade"] = grade
+    state["feedback_class"] = {1: "bad", 2: "hard", 3: "good", 4: "easy"}[grade]
+    schedule = record_answer(
+        learner_id, word["arabic_word"], grade, answer_correct, response_seconds
+    )
     state["last_interval_days"] = schedule["interval_days"]
     state["answered"] = True
+    session["quiz"] = state
+    return redirect(url_for("home"))
+
+
+@app.post("/pause")
+def toggle_pause():
+    state = session.get("quiz")
+    if (not state or state.get("version") != 4 or state.get("current") is None
+            or state.get("answered")):
+        return redirect(url_for("home"))
+    now = time.time()
+    if state.get("paused"):
+        paused_at = state.get("pause_started_at") or now
+        started_at = state.get("question_started_at") or now
+        state["question_started_at"] = started_at + max(0.0, now - paused_at)
+        state["paused"] = False
+        state["pause_started_at"] = None
+    else:
+        state["paused"] = True
+        state["pause_started_at"] = now
     session["quiz"] = state
     return redirect(url_for("home"))
 
