@@ -56,7 +56,7 @@
         {% if not state.cloud_usage_complete %}<p class="usage-note usage-warning">* 部分回應未提供 token 數，以上合計為已回報部分。</p>{% endif %}
       </section>
       <section class="card quiz-card">
-        <div class="question-meta"><span class="question-number">{{ '新單字' if progress[question.arabic_word].card_state == 'new' else '到期複習' }}</span><span class="frequency">{% if question.frequency_known %}語料詞頻 <b>{{ '{:,.0f}'.format(question.frequency) }}</b>{% else %}詞頻未知 · 中間抽選權重{% endif %}</span></div>
+        <div class="question-meta"><span class="question-number">{{ '短期重練' if state.learning_retry else ('新單字' if progress[question.arabic_word].card_state == 'new' else '到期複習') }}</span><span class="frequency">{% if question.frequency_known %}語料詞頻 <b>{{ '{:,.0f}'.format(question.frequency) }}</b>{% else %}詞頻未知 · 中間抽選權重{% endif %}</span></div>
         {% if state.paused %}
           <div class="pause-panel"><p class="eyebrow">TIMER PAUSED</p><h2>測驗已暫停</h2><p>暫停期間不會計入作答時間，恢復後可繼續回答目前題目。</p><form method="post" action="{{ url_for('toggle_pause') }}"><button class="button primary" type="submit">恢復作答並繼續計時</button></form></div>
         {% else %}
@@ -72,7 +72,7 @@
           <p class="grading-status" aria-live="polite" hidden>正在等待 Ollama 批改，模型運算可能需要一些時間…</p>
         </form>
         {% if state.feedback %}
-          <div class="feedback {{ state.feedback_class|default('bad') }}" role="status"><span class="feedback-icon">{{ '✓' if state.feedback_grade in [3, 4] else ('~' if state.feedback_grade == 2 else '!') }}</span><div><strong>{{ state.feedback }}</strong><p>正確寫法：<b class="arabic-answer" lang="ar" dir="rtl">{{ question.arabic_word }}</b>{% if state.feedback_grade %}<span class="count">FSRS：{{ {1: 'Again (1)', 2: 'Hard (2)', 3: 'Good (3)', 4: 'Easy (4)'}[state.feedback_grade] }} · 下次約 {{ state.last_interval_days }} 天後</span>{% endif %}</p></div></div>
+          <div class="feedback {{ state.feedback_class|default('bad') }}" role="status"><span class="feedback-icon">{{ '✓' if state.feedback_grade in [3, 4] else ('~' if state.feedback_grade == 2 else '!') }}</span><div><strong>{{ state.feedback }}</strong><p>正確寫法：<b class="arabic-answer" lang="ar" dir="rtl">{{ question.arabic_word }}</b>{% if state.feedback_grade %}<span class="count">FSRS：{{ {1: 'Again (1)', 2: 'Hard (2)', 3: 'Good (3)', 4: 'Easy (4)'}[state.feedback_grade] }} · {{ '長期間隔' if state.feedback_grade == 1 else '下次複習' }}約 {{ state.last_interval_days }} 天後</span>{% endif %}</p></div></div>
           <form method="post" action="{{ url_for('next_question') }}"><button class="button primary next-button" type="submit">下一題 <span>→</span></button></form>
         {% endif %}
         {% if not state.answered %}<form class="pause-form" method="post" action="{{ url_for('toggle_pause') }}"><button class="text-button" type="submit">暫停測驗</button><span>離席時先暫停，時間不會影響難度評分</span></form>{% endif %}

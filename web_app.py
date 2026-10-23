@@ -49,6 +49,7 @@ OLLAMA_READ_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_READ_TIMEOUT_SECONDS"
 OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
 FSRS_DESIRED_RETENTION = float(os.environ.get("FSRS_DESIRED_RETENTION", "0.9"))
 FSRS_MAXIMUM_INTERVAL_DAYS = int(os.environ.get("FSRS_MAXIMUM_INTERVAL_DAYS", "36500"))
+RELEARNING_DELAY_ANSWERS = 3
 if not 0 < FSRS_DESIRED_RETENTION < 1:
     raise RuntimeError("FSRS_DESIRED_RETENTION must be between 0 and 1.")
 if FSRS_MAXIMUM_INTERVAL_DAYS < 1:
@@ -149,6 +150,7 @@ def initialize_database():
                 lapse_count INTEGER NOT NULL DEFAULT 0,
                 card_state TEXT NOT NULL DEFAULT 'new',
                 last_grade INTEGER,
+                learning_due_after INTEGER,
                 PRIMARY KEY (learner_id, word)
             )
         """)
@@ -160,6 +162,7 @@ def initialize_database():
                 grade INTEGER NOT NULL,
                 answer_correct INTEGER NOT NULL,
                 response_seconds REAL NOT NULL,
+                counts_for_timing INTEGER NOT NULL DEFAULT 1,
                 answered_at REAL NOT NULL
             )
         """)
@@ -178,12 +181,21 @@ def initialize_database():
             "lapse_count": "INTEGER NOT NULL DEFAULT 0",
             "card_state": "TEXT NOT NULL DEFAULT 'new'",
             "last_grade": "INTEGER",
+            "learning_due_after": "INTEGER",
         }
         for column, definition in migrations.items():
             if column not in existing_columns:
                 connection.execute(
                     f"ALTER TABLE learner_word_progress ADD COLUMN {column} {definition}"
                 )
+        history_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(learner_answer_history)")
+        }
+        if "counts_for_timing" not in history_columns:
+            connection.execute(
+                "ALTER TABLE learner_answer_history ADD COLUMN counts_for_timing "
+                "INTEGER NOT NULL DEFAULT 1"
+            )
 
         # Seed one FSRS state from the most recent binary answer in old databases.
         legacy_rows = connection.execute("""
@@ -236,13 +248,15 @@ def get_progress(learner_id, words):
             "lapse_count": 0,
             "card_state": "new",
             "last_grade": None,
+            "learning_due_after": None,
         }
         for item in words
     }
     with database_connection() as connection:
         rows = connection.execute(
             "SELECT word, correct_count, wrong_count, last_selected_at, last_reviewed_at, last_result, "
-            "fsrs_stability, fsrs_difficulty, due_at, review_count, lapse_count, card_state, last_grade "
+            "fsrs_stability, fsrs_difficulty, due_at, review_count, lapse_count, card_state, last_grade, "
+            "learning_due_after "
             "FROM learner_word_progress WHERE learner_id = ?", (learner_id,)
         )
         for row in rows:
@@ -260,6 +274,7 @@ def get_progress(learner_id, words):
                     "lapse_count": row["lapse_count"],
                     "card_state": row["card_state"],
                     "last_grade": row["last_grade"],
+                    "learning_due_after": row["learning_due_after"],
                 }
     return progress
 
@@ -291,7 +306,8 @@ def record_selection(learner_id, word):
 def get_answer_time_stats(learner_id):
     with database_connection() as connection:
         rows = connection.execute(
-            "SELECT response_seconds FROM learner_answer_history WHERE learner_id = ?",
+            "SELECT response_seconds FROM learner_answer_history "
+            "WHERE learner_id = ? AND counts_for_timing = 1",
             (learner_id,),
         ).fetchall()
     durations = [row["response_seconds"] for row in rows]
@@ -317,7 +333,16 @@ def apply_timing_grade(grade, response_seconds, stats):
     return 3
 
 
-def record_answer(learner_id, word, grade, answer_correct, response_seconds):
+def get_answer_count(learner_id):
+    with database_connection() as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM learner_answer_history WHERE learner_id = ?", (learner_id,)
+        ).fetchone()
+    return row[0]
+
+
+def record_answer(learner_id, word, grade, answer_correct, response_seconds,
+                  counts_for_timing=True):
     now = time.time()
     with database_connection() as connection:
         previous = connection.execute("""
@@ -349,13 +374,19 @@ def record_answer(learner_id, word, grade, answer_correct, response_seconds):
             review_count = 1
             lapse_count = 0
 
+        completed_answers = connection.execute(
+            "SELECT COUNT(*) FROM learner_answer_history WHERE learner_id = ?", (learner_id,)
+        ).fetchone()[0] + 1
+        learning_due_after = (
+            completed_answers + RELEARNING_DELAY_ANSWERS if grade == 1 else None
+        )
         scheduled["due_at"] = now + scheduled["interval_days"] * 86400
         connection.execute("""
             INSERT INTO learner_word_progress
                 (learner_id, word, correct_count, wrong_count, last_reviewed_at, last_result,
                  fsrs_stability, fsrs_difficulty, due_at, review_count, lapse_count,
-                 card_state, last_grade)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'review', ?)
+                 card_state, last_grade, learning_due_after)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'review', ?, ?)
             ON CONFLICT (learner_id, word) DO UPDATE SET
                 correct_count = learner_word_progress.correct_count + excluded.correct_count,
                 wrong_count = learner_word_progress.wrong_count + excluded.wrong_count,
@@ -367,15 +398,18 @@ def record_answer(learner_id, word, grade, answer_correct, response_seconds):
                 review_count = excluded.review_count,
                 lapse_count = excluded.lapse_count,
                 card_state = excluded.card_state,
-                last_grade = excluded.last_grade
+                last_grade = excluded.last_grade,
+                learning_due_after = excluded.learning_due_after
         """, (learner_id, word, int(answer_correct), int(not answer_correct), now, int(answer_correct),
               scheduled["stability"], scheduled["difficulty"], scheduled["due_at"],
-              review_count, lapse_count, grade))
+              review_count, lapse_count, grade, learning_due_after))
         connection.execute("""
             INSERT INTO learner_answer_history
-                (learner_id, word, grade, answer_correct, response_seconds, answered_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (learner_id, word, grade, int(answer_correct), response_seconds, now))
+                (learner_id, word, grade, answer_correct, response_seconds,
+                 counts_for_timing, answered_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (learner_id, word, grade, int(answer_correct), response_seconds,
+              int(counts_for_timing), now))
     return scheduled
 
 
@@ -535,6 +569,7 @@ def new_quiz_state():
         "pending_answer_seconds": 0.0,
         "paused": False,
         "pause_started_at": None,
+        "learning_retry": False,
         "answered": False,
     }
 
@@ -544,6 +579,12 @@ def choose_question(state):
     learner_id = get_learner_id()
     progress = get_progress(learner_id, words)
     now = time.time()
+    completed_answers = get_answer_count(learner_id)
+    due_learning = [
+        i for i, item in enumerate(words)
+        if progress[item["arabic_word"]]["learning_due_after"] is not None
+        and progress[item["arabic_word"]]["learning_due_after"] <= completed_answers
+    ]
     due_reviews = [
         i for i, item in enumerate(words)
         if progress[item["arabic_word"]]["card_state"] == "review"
@@ -554,7 +595,12 @@ def choose_question(state):
         i for i, item in enumerate(words)
         if progress[item["arabic_word"]]["card_state"] == "new"
     ]
-    if due_reviews:
+    if due_learning:
+        index = min(
+            due_learning,
+            key=lambda i: progress[words[i]["arabic_word"]]["learning_due_after"],
+        )
+    elif due_reviews:
         def review_priority(index):
             item_progress = progress[words[index]["arabic_word"]]
             elapsed = max(0.0, (now - item_progress["last_reviewed_at"]) / 86400)
@@ -566,15 +612,26 @@ def choose_question(state):
             new_cards, weights=[words[i]["new_card_weight"] for i in new_cards], k=1
         )[0]
     else:
-        state["current"] = None
-        future_due_dates = [
-            progress[item["arabic_word"]]["due_at"]
-            for item in words
-            if progress[item["arabic_word"]]["due_at"] is not None
+        waiting_learning = [
+            i for i, item in enumerate(words)
+            if progress[item["arabic_word"]]["learning_due_after"] is not None
         ]
-        state["next_due_at"] = min(future_due_dates) if future_due_dates else None
-        session["quiz"] = state
-        return
+        if waiting_learning:
+            # Don't strand short-term retries if no other card can advance the counter.
+            index = min(
+                waiting_learning,
+                key=lambda i: progress[words[i]["arabic_word"]]["learning_due_after"],
+            )
+        else:
+            state["current"] = None
+            future_due_dates = [
+                progress[item["arabic_word"]]["due_at"]
+                for item in words
+                if progress[item["arabic_word"]]["due_at"] is not None
+            ]
+            state["next_due_at"] = min(future_due_dates) if future_due_dates else None
+            session["quiz"] = state
+            return
     state["current"] = index
     state["next_due_at"] = None
     state["last_interval_days"] = None
@@ -583,6 +640,9 @@ def choose_question(state):
     state["pending_answer_seconds"] = 0.0
     state["paused"] = False
     state["pause_started_at"] = None
+    state["learning_retry"] = (
+        progress[words[index]["arabic_word"]]["learning_due_after"] is not None
+    )
     state["feedback"] = None
     record_selection(learner_id, words[index]["arabic_word"])
     session["quiz"] = state
@@ -618,14 +678,20 @@ def home():
     state.setdefault("pending_answer_seconds", 0.0)
     state.setdefault("paused", False)
     state.setdefault("pause_started_at", None)
+    state.setdefault("learning_retry", False)
     session["quiz"] = state
     progress = get_progress(learner_id, words)
     index = state["current"]
     question = words[index] if index is not None and 0 <= index < len(words) else None
     now = time.time()
     reviewed_count = sum(item["card_state"] == "review" for item in progress.values())
-    due_count = sum(item["due_at"] is not None and item["due_at"] <= now
-                    for item in progress.values())
+    completed_answers = get_answer_count(learner_id)
+    due_count = sum(
+        (item["due_at"] is not None and item["due_at"] <= now)
+        or (item["learning_due_after"] is not None
+            and item["learning_due_after"] <= completed_answers)
+        for item in progress.values()
+    )
     next_due_in_days = None
     if state.get("next_due_at") is not None:
         next_due_in_days = max(0, (state["next_due_at"] - now) / 86400)
@@ -715,8 +781,13 @@ def answer():
 
     answer_correct = grade == 3
     stats = get_answer_time_stats(learner_id)
-    grade = apply_timing_grade(grade, response_seconds, stats)
-    if answer_correct and grade == 4:
+    is_learning_retry = state.get("learning_retry", False)
+    counts_for_timing = not is_learning_retry
+    if counts_for_timing:
+        grade = apply_timing_grade(grade, response_seconds, stats)
+    if answer_correct and is_learning_retry:
+        message = "短期重練答對，記為 Good；這次速度不納入個人基準。"
+    elif answer_correct and grade == 4:
         message = "答對且作答速度快於個人平均一個標準差以上，記為 Easy。"
     elif answer_correct and grade == 2:
         message = "答案正確，但作答時間較長，依個人平均與標準差記為 Hard。"
@@ -727,8 +798,14 @@ def answer():
     state["feedback_grade"] = grade
     state["feedback_class"] = {1: "bad", 2: "hard", 3: "good", 4: "easy"}[grade]
     schedule = record_answer(
-        learner_id, word["arabic_word"], grade, answer_correct, response_seconds
+        learner_id, word["arabic_word"], grade, answer_correct, response_seconds,
+        counts_for_timing,
     )
+    if grade == 1:
+        state["feedback"] += (
+            f" 會在完成其他 {RELEARNING_DELAY_ANSWERS} 題後再出現；"
+            "若沒有其他可答題，會提早重練。"
+        )
     state["last_interval_days"] = schedule["interval_days"]
     state["answered"] = True
     session["quiz"] = state
