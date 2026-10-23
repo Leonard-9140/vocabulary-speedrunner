@@ -24,11 +24,11 @@
 | `Dockerfile`, `compose.yaml` | 建置及執行容器。 |
 | `.env.example` | Docker Compose 與部署環境變數範本。 |
 
-## 初次使用：資料已隨專案附上
+## 初次使用
 
-第一次使用不需要自行下載詞頻資料、執行分析或清洗腳本。專案已附上預先整理好的 `voc_database.csv`（目前 2,552 筆詞頻資料）和預設練習題庫 `exam_list.csv`（目前 234 個單字）。Docker 映像會直接複製這兩個 CSV；原始 Wikipedia 大型資料檔、清洗／分析腳本及資料庫備份不會放進映像或 Docker build context。
+第一次使用不需要自行下載詞頻資料、執行分析或清洗腳本。專案已附上預先整理好的 `voc_database.csv`（目前 2,552 筆詞頻資料）和預設練習題庫 `exam_list.csv`（目前 234 個單字）。Docker映像已包含這兩個CSV檔案，使用者不須自行清洗資料。
 
-首次啟動只需準備 Ollama，接著用 Docker Compose 建置並啟動網頁。瀏覽器進入 <http://localhost:5000> 後，按「開始測驗」即可使用內附題庫。
+首次啟動只需準備 Ollama，接著用Docker Compose建置並啟動網頁。瀏覽器進入 <http://localhost:5000> 後，按「開始測驗」即可使用內附題庫。
 
 若要使用自己的單字表，請以 UTF-8 編碼編輯專案根目錄的 `exam_list.csv`，保留 `arabic_word,translation` 欄位，再執行 `docker compose up -d --build` 重新建置。單字頻率會從內附的 `voc_database.csv` 查找；新單字若不在其中，仍會以預設權重出題，不需要自行執行分析腳本。
 
