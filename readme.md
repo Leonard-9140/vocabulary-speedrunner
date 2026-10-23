@@ -46,7 +46,7 @@ arabic_word,translation
 
 `voc_database.csv` 提供詞頻權重。若題庫中的單字不在詞頻資料庫，程式會以預設權重納入練習。
 
-## FSRS-4.5 複習排程
+## FSRS-4.5 複習排程與模型判斷準則
 
 排程依照 [FSRS-4.5 演算法](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm/bc401d9ed5093c66358738f4b8834f8d24ab211b)計算記憶難度 `D`、穩定度 `S` 和可回憶率 `R`。程式使用該頁列出的 FSRS-4 權重組及 FSRS-4.5 遺忘曲線：`R(t,S) = (1 + 19/81 × t/S)^(-0.5)`，並反解目標保留率以決定下次間隔。
 
