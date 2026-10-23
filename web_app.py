@@ -419,18 +419,28 @@ def load_words():
             word = (row.get("arabic_word") or "").strip()
             meaning = (row.get("translation") or "").strip()
             if word and meaning:
-                words.append({"arabic_word": word, "translation": meaning,
-                              "frequency": frequencies.get(word, 1.0)})
+                frequency_known = word in frequencies
+                words.append({
+                    "arabic_word": word,
+                    "translation": meaning,
+                    "frequency": frequencies.get(word, 1.0),
+                    "frequency_known": frequency_known,
+                })
     if not words:
         raise ValueError(f"{USER_LIST_FILE} 沒有可用的單字。")
-    frequency_levels = sorted({item["frequency"] for item in words})
+    frequency_levels = sorted({
+        item["frequency"] for item in words if item["frequency_known"]
+    })
     frequency_percentiles = {
         value: (rank / (len(frequency_levels) - 1) if len(frequency_levels) > 1 else 0.5)
         for rank, value in enumerate(frequency_levels)
     }
     for item in words:
-        # Wiki frequency orders only unseen cards; FSRS schedules reviewed cards.
-        item["new_card_weight"] = 0.5 + frequency_percentiles[item["frequency"]]
+        # Unknown frequency is neutral; only known values define percentile ranks.
+        percentile = (
+            frequency_percentiles[item["frequency"]] if item["frequency_known"] else 0.5
+        )
+        item["new_card_weight"] = 0.5 + percentile
     return words
 
 
