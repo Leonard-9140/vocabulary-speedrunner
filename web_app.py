@@ -50,6 +50,8 @@ OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
 FSRS_DESIRED_RETENTION = float(os.environ.get("FSRS_DESIRED_RETENTION", "0.9"))
 FSRS_MAXIMUM_INTERVAL_DAYS = int(os.environ.get("FSRS_MAXIMUM_INTERVAL_DAYS", "36500"))
 RELEARNING_DELAY_ANSWERS = 3
+FSRS_GRADE_LABELS = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
+FSRS_GRADE_COLORS = {1: "#c97852", 2: "#d6a742", 3: "#4d936d", 4: "#668bd5"}
 if not 0 < FSRS_DESIRED_RETENTION < 1:
     raise RuntimeError("FSRS_DESIRED_RETENTION must be between 0 and 1.")
 if FSRS_MAXIMUM_INTERVAL_DAYS < 1:
@@ -339,6 +341,26 @@ def get_answer_count(learner_id):
             "SELECT COUNT(*) FROM learner_answer_history WHERE learner_id = ?", (learner_id,)
         ).fetchone()
     return row[0]
+
+
+def get_latest_grade_distribution(progress):
+    """Count each reviewed word once, using its latest FSRS grade."""
+    counts = {grade: 0 for grade in FSRS_GRADE_LABELS}
+    for item in progress.values():
+        grade = item["last_grade"]
+        if item["card_state"] == "review" and grade in counts:
+            counts[grade] += 1
+    total = sum(counts.values())
+    if not total:
+        return counts, 0, "conic-gradient(#e8ece7 0% 100%)"
+
+    segments = []
+    start = 0.0
+    for grade, count in counts.items():
+        end = start + count / total * 100
+        segments.append(f"{FSRS_GRADE_COLORS[grade]} {start:.3f}% {end:.3f}%")
+        start = end
+    return counts, total, f"conic-gradient({', '.join(segments)})"
 
 
 def record_answer(learner_id, word, grade, answer_correct, response_seconds,
@@ -681,6 +703,8 @@ def home():
     state.setdefault("learning_retry", False)
     session["quiz"] = state
     progress = get_progress(learner_id, words)
+    answer_time_stats = get_answer_time_stats(learner_id)
+    grade_counts, grade_total, grade_chart_gradient = get_latest_grade_distribution(progress)
     index = state["current"]
     question = words[index] if index is not None and 0 <= index < len(words) else None
     now = time.time()
@@ -698,6 +722,13 @@ def home():
     return render_template("index.html", state=state, question=question,
                            progress=progress, total=len(words), reviewed_count=reviewed_count,
                            due_count=due_count, next_due_in_days=next_due_in_days,
+                           unanswered_count=len(words) - reviewed_count,
+                           answered_percent=(reviewed_count / len(words) * 100) if words else 0,
+                           answer_time_stats=answer_time_stats,
+                           grade_counts=grade_counts, grade_total=grade_total,
+                           grade_chart_gradient=grade_chart_gradient,
+                           grade_labels=FSRS_GRADE_LABELS,
+                           grade_colors=FSRS_GRADE_COLORS,
                            has_history=has_learning_history(learner_id),
                            model_choices=get_page_model_choices(),
                            selected_model=session.get("ollama_model", OLLAMA_MODEL))

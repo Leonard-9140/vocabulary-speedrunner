@@ -40,47 +40,84 @@
         <form method="post" action="{{ url_for('start') }}"><button class="button primary" type="submit">開始測驗 <span>↗</span></button></form>
       </section>
       {% if has_history %}<form class="reset-form" method="post" action="{{ url_for('reset_progress') }}" onsubmit="return confirm('確定清除此瀏覽器的所有單字答題紀錄並重新開始？此操作無法復原。')"><button class="text-button" type="submit">清除學習紀錄並重新開始</button></form>{% endif %}
-    {% elif question %}
-      <section class="progress-area">
-        <div class="progress-label"><span>複習排程</span><strong>{{ reviewed_count }} <small>/ {{ total }} 已開始</small><small> · {{ due_count }} 到期</small></strong></div>
-        <div class="progress-track"><span style="width: {{ (reviewed_count / total * 100) if total else 0 }}%"></span></div>
+    {% elif state %}
+      <section class="dashboard">
+        <aside class="dashboard-column left-column" aria-label="作答統計">
+          <section class="card stat-card time-card">
+            <p class="eyebrow">ANSWER SPEED</p><h2>平均作答時間</h2>
+            {% if answer_time_stats.mean is not none %}
+              <div class="time-primary">{{ '%.1f'|format(answer_time_stats.mean) }}<span>秒</span></div>
+              <dl class="time-details"><div><dt>標準差</dt><dd>{% if answer_time_stats.stdev is not none %}{{ '%.1f'|format(answer_time_stats.stdev) }} 秒{% else %}樣本不足{% endif %}</dd></div><div><dt>有效樣本</dt><dd>{{ answer_time_stats.count }} 題</dd></div></dl>
+            {% else %}
+              <p class="stat-empty">完成作答後，這裡會顯示個人平均時間。</p>
+              <dl class="time-details"><div><dt>有效樣本</dt><dd>0 題</dd></div><div><dt>判級所需</dt><dd>至少 2 題</dd></div></dl>
+            {% endif %}
+            <p class="stat-note">短期重練不納入速度基準。</p>
+          </section>
+
+          <section class="card stat-card grade-card">
+            <p class="eyebrow">LATEST FSRS RATINGS</p><h2>已作答單字評分</h2>
+            <div class="donut-layout">
+              <div class="rating-donut" role="img" aria-label="{{ grade_total }} 個已作答單字的最近 FSRS 評分分佈" style="background: {{ grade_chart_gradient }}"><span><strong>{{ grade_total }}</strong><small>個單字</small></span></div>
+              <ul class="rating-legend">
+                {% for grade in [1, 2, 3, 4] %}
+                  <li><i style="background: {{ grade_colors[grade] }}"></i><span>{{ grade_labels[grade] }}</span><strong>{{ grade_counts[grade] }}</strong></li>
+                {% endfor %}
+              </ul>
+            </div>
+            <p class="stat-note">每個單字只計最近一次評分。</p>
+          </section>
+        </aside>
+
+        <section class="dashboard-column middle-column" aria-label="測驗區">
+          <section class="card coverage-card">
+            <div class="coverage-heading"><div><p class="eyebrow">WORD COVERAGE</p><h2>題庫作答進度</h2></div><strong>{{ reviewed_count }}<small> / {{ total }}</small></strong></div>
+            <div class="coverage-bar" role="img" aria-label="{{ reviewed_count }} 個已作答，{{ unanswered_count }} 個未作答，共 {{ total }} 個單字"><span class="coverage-answered" style="width: {{ answered_percent }}%"></span><span class="coverage-unanswered" style="width: {{ 100 - answered_percent }}%"></span></div>
+            <div class="coverage-legend"><span><i class="answered-dot"></i>已作答 {{ reviewed_count }}</span><span><i class="unanswered-dot"></i>未作答 {{ unanswered_count }}</span></div>
+          </section>
+
+          {% if question %}
+            <section class="card quiz-card">
+              <div class="question-meta"><span class="question-number">{{ '短期重練' if state.learning_retry else ('新單字' if progress[question.arabic_word].card_state == 'new' else '到期複習') }}</span><span class="frequency">{% if question.frequency_known %}語料詞頻 <b>{{ '{:,.0f}'.format(question.frequency) }}</b>{% else %}詞頻未知 · 中間抽選權重{% endif %}</span></div>
+              <div class="question-main">
+                {% if state.paused %}
+                  <div class="pause-panel"><p class="eyebrow">TIMER PAUSED</p><h2>測驗已暫停</h2><p>暫停期間不會計入作答時間，恢復後可繼續回答目前題目。</p><form method="post" action="{{ url_for('toggle_pause') }}"><button class="button primary" type="submit">恢復作答並繼續計時</button></form></div>
+                {% else %}
+                  <p class="prompt-label">這個阿拉伯文怎麼說？</p>
+                  <div class="meaning" lang="zh-Hant">{{ question.translation }}</div>
+                  <form class="answer-form" method="post" action="{{ url_for('answer') }}">
+                    <label for="answer">你的答案</label>
+                    <div class="input-wrap"><span class="input-glyph" aria-hidden="true">ع</span><input id="answer" name="answer" type="text" lang="ar" dir="rtl" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="اكتب إجابتك هنا" {% if state.answered %}disabled{% else %}autofocus{% endif %}></div>
+                    {% if not state.answered %}<button class="button primary submit-button" type="submit">確認答案 <span>↗</span></button>{% endif %}
+                    <p class="grading-status" aria-live="polite" hidden>正在等待 Ollama 批改，模型運算可能需要一些時間…</p>
+                  </form>
+                  {% if state.feedback %}
+                    <div class="feedback {{ state.feedback_class|default('bad') }}" role="status"><span class="feedback-icon">{{ '✓' if state.feedback_grade in [3, 4] else ('~' if state.feedback_grade == 2 else '!') }}</span><div><strong>{{ state.feedback }}</strong><p>正確寫法：<b class="arabic-answer" lang="ar" dir="rtl">{{ question.arabic_word }}</b>{% if state.feedback_grade %}<span class="count">FSRS：{{ {1: 'Again (1)', 2: 'Hard (2)', 3: 'Good (3)', 4: 'Easy (4)'}[state.feedback_grade] }} · {{ '長期間隔' if state.feedback_grade == 1 else '下次複習' }}約 {{ state.last_interval_days }} 天後</span>{% endif %}</p></div></div>
+                    <form method="post" action="{{ url_for('next_question') }}"><button class="button primary next-button" type="submit">下一題 <span>→</span></button></form>
+                  {% endif %}
+                  {% if not state.answered %}<form class="pause-form" method="post" action="{{ url_for('toggle_pause') }}"><button class="text-button" type="submit">暫停測驗</button><span>離席時先暫停，時間不會影響難度評分</span></form>{% endif %}
+                {% endif %}
+              </div>
+            </section>
+            <form class="reset-form" method="post" action="{{ url_for('reset') }}"><button class="text-button" type="submit">結束本次測驗（保留學習紀錄）</button></form>
+          {% else %}
+            <section class="card complete-card"><div class="complete-star">✦</div><p class="eyebrow">REVIEWS UP TO DATE</p><h2>目前沒有到期單字</h2><p class="muted">已有 {{ reviewed_count }} / {{ total }} 個單字進入 FSRS 複習排程。{% if next_due_in_days is not none %}最早一題約 {{ '%.1f'|format(next_due_in_days) }} 天後到期。{% else %}按「開始測驗」可繼續加入新單字。{% endif %}紀錄已保存。</p><form method="post" action="{{ url_for('reset_progress') }}" onsubmit="return confirm('清除所有學習紀錄並重新開始嗎？此操作無法復原。')"><button class="button primary" type="submit">清除紀錄並重新開始 <span>↗</span></button></form></section>
+          {% endif %}
+        </section>
+
+        <aside class="dashboard-column right-column" aria-label="Ollama 呼叫統計">
+          <section class="card usage-card" aria-labelledby="usage-title">
+            <div class="usage-heading"><div><p class="eyebrow">OLLAMA CLOUD · 本次測驗</p><h2 id="usage-title">Cloud 模型用量</h2></div><span class="usage-calls">{{ state.cloud_calls }} 次請求</span></div>
+            <table class="usage-table"><thead><tr><th scope="col">Token 統計</th><th scope="col">用量</th></tr></thead><tbody>
+              <tr><th scope="row">輸入 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_input_tokens) }}</td></tr>
+              <tr><th scope="row">輸出 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_output_tokens) }}</td></tr>
+              <tr class="usage-total"><th scope="row">合計 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_input_tokens + state.cloud_output_tokens) }}{% if not state.cloud_usage_complete %}<sup>*</sup>{% endif %}</td></tr>
+            </tbody></table>
+            <p class="usage-note">僅統計本次測驗中 GUI 的 gemma4:cloud 請求；精確比對直接判分，不會呼叫模型。這不是 Ollama 帳戶方案或剩餘額度。</p>
+            {% if not state.cloud_usage_complete %}<p class="usage-note usage-warning">* 部分回應未提供 token 數，以上合計為已回報部分。</p>{% endif %}
+          </section>
+        </aside>
       </section>
-      <section class="card usage-card" aria-labelledby="usage-title">
-        <div class="usage-heading"><div><p class="eyebrow">OLLAMA CLOUD · 本次測驗</p><h2 id="usage-title">Cloud 模型用量</h2></div><span class="usage-calls">{{ state.cloud_calls }} 次請求</span></div>
-        <table class="usage-table"><thead><tr><th scope="col">Token 統計</th><th scope="col">用量</th></tr></thead><tbody>
-          <tr><th scope="row">輸入 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_input_tokens) }}</td></tr>
-          <tr><th scope="row">輸出 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_output_tokens) }}</td></tr>
-          <tr class="usage-total"><th scope="row">合計 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_input_tokens + state.cloud_output_tokens) }}{% if not state.cloud_usage_complete %}<sup>*</sup>{% endif %}</td></tr>
-        </tbody></table>
-        <p class="usage-note">僅統計本次測驗中 GUI 的 gemma4:cloud 請求；精確比對直接判分，不會呼叫模型。這不是 Ollama 帳戶方案或剩餘額度。</p>
-        {% if not state.cloud_usage_complete %}<p class="usage-note usage-warning">* 部分回應未提供 token 數，以上合計為已回報部分。</p>{% endif %}
-      </section>
-      <section class="card quiz-card">
-        <div class="question-meta"><span class="question-number">{{ '短期重練' if state.learning_retry else ('新單字' if progress[question.arabic_word].card_state == 'new' else '到期複習') }}</span><span class="frequency">{% if question.frequency_known %}語料詞頻 <b>{{ '{:,.0f}'.format(question.frequency) }}</b>{% else %}詞頻未知 · 中間抽選權重{% endif %}</span></div>
-        {% if state.paused %}
-          <div class="pause-panel"><p class="eyebrow">TIMER PAUSED</p><h2>測驗已暫停</h2><p>暫停期間不會計入作答時間，恢復後可繼續回答目前題目。</p><form method="post" action="{{ url_for('toggle_pause') }}"><button class="button primary" type="submit">恢復作答並繼續計時</button></form></div>
-        {% else %}
-        <p class="prompt-label">這個阿拉伯文怎麼說？</p>
-        <div class="meaning" lang="zh-Hant">{{ question.translation }}</div>
-        <form class="answer-form" method="post" action="{{ url_for('answer') }}">
-          <label for="answer">你的答案</label>
-          <div class="input-wrap">
-            <span class="input-glyph" aria-hidden="true">ع</span>
-            <input id="answer" name="answer" type="text" lang="ar" dir="rtl" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="اكتب إجابتك هنا" {% if state.answered %}disabled{% else %}autofocus{% endif %}>
-          </div>
-          {% if not state.answered %}<button class="button primary submit-button" type="submit">確認答案 <span>↗</span></button>{% endif %}
-          <p class="grading-status" aria-live="polite" hidden>正在等待 Ollama 批改，模型運算可能需要一些時間…</p>
-        </form>
-        {% if state.feedback %}
-          <div class="feedback {{ state.feedback_class|default('bad') }}" role="status"><span class="feedback-icon">{{ '✓' if state.feedback_grade in [3, 4] else ('~' if state.feedback_grade == 2 else '!') }}</span><div><strong>{{ state.feedback }}</strong><p>正確寫法：<b class="arabic-answer" lang="ar" dir="rtl">{{ question.arabic_word }}</b>{% if state.feedback_grade %}<span class="count">FSRS：{{ {1: 'Again (1)', 2: 'Hard (2)', 3: 'Good (3)', 4: 'Easy (4)'}[state.feedback_grade] }} · {{ '長期間隔' if state.feedback_grade == 1 else '下次複習' }}約 {{ state.last_interval_days }} 天後</span>{% endif %}</p></div></div>
-          <form method="post" action="{{ url_for('next_question') }}"><button class="button primary next-button" type="submit">下一題 <span>→</span></button></form>
-        {% endif %}
-        {% if not state.answered %}<form class="pause-form" method="post" action="{{ url_for('toggle_pause') }}"><button class="text-button" type="submit">暫停測驗</button><span>離席時先暫停，時間不會影響難度評分</span></form>{% endif %}
-        {% endif %}
-      </section>
-      <form class="reset-form" method="post" action="{{ url_for('reset') }}"><button class="text-button" type="submit">結束本次測驗（保留學習紀錄）</button></form>
-    {% else %}
-      <section class="card complete-card"><div class="complete-star">✦</div><p class="eyebrow">REVIEWS UP TO DATE</p><h2>目前沒有到期單字</h2><p class="muted">已有 {{ reviewed_count }} / {{ total }} 個單字進入 FSRS 複習排程。{% if next_due_in_days is not none %}最早一題約 {{ '%.1f'|format(next_due_in_days) }} 天後到期。{% else %}按「開始測驗」可繼續加入新單字。{% endif %}紀錄已保存。</p><form method="post" action="{{ url_for('reset_progress') }}" onsubmit="return confirm('清除所有學習紀錄並重新開始嗎？此操作無法復原。')"><button class="button primary" type="submit">清除紀錄並重新開始 <span>↗</span></button></form></section>
     {% endif %}
     <footer><span>OLLAMA LOCAL OR CLOUD · YOUR PROGRESS STAYS IN THIS BROWSER</span><span>阿拉伯文顯示方向已設定為 RTL</span></footer>
   </main>
