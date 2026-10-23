@@ -1,13 +1,13 @@
-# Arabic Sprint（Vocabulary Speedrunner）
+# Arabic Sprint（原Vocabulary Speedrunner）
 
-以「看中文寫阿拉伯文」為方向的單字練習工具。網頁 GUI 支援阿拉伯文由右至左顯示、Ollama 本機或 Cloud 模型批改，並以詞頻權重和答題表現安排複習。
+以「以中文語意聯想阿拉伯文詞彙」為方向的單字練習工具。網頁GUI支援阿拉伯文由右至左顯示、Ollama本機或Cloud模型批改，可在隱私與速度間靈活切換，並以詞頻權重和答題表現安排複習。
 
 ## 功能
 
-- **中文提示、阿拉伯文作答**：輸入框和答案使用 RTL 排版，適合阿拉伯文閱讀與輸入。
-- **切換批改模型**：頁面右上方可選 `gemma4:cloud` 或 `gemma4:e4b`。預設為 Cloud；切換模型不會重設當前測驗。
+- **中文提示、阿拉伯文作答**：輸入框和答案使用RTL排版，適合阿拉伯文閱讀與輸入。
+- **自動列出可用模型**：模型選單保留 `gemma4:cloud`，並自動列出目前連線的 Ollama 服務已下載模型；新增或移除模型後，等待最多約 15 秒再重新整理即可更新。
 - **依答題表現抽題**：答錯的單字提高再次出現機率；每個單字答對達指定次數後即視為精通。
-- **Cloud token 用量表**：測驗中顯示本次測驗由此 GUI 發出的 Cloud 請求數，以及 Ollama 回報的輸入、輸出和合計 tokens。若部分回應沒有 token 指標，頁面會標示統計不完整。
+- **Cloud token 用量表**：測驗中顯示本次測驗由此GUI發出的Cloud請求數，以及Ollama回報的輸入、輸出和合計tokens。
 - **Docker 部署**：提供 Dockerfile、Compose 設定與健康檢查端點 `/healthz`。
 
 > 用量表只統計本次 GUI 測驗的 Cloud 請求，不代表 Ollama 帳戶方案、帳戶總用量或剩餘額度。Ollama 的回應用量指標是單次請求的 token 數；本專案不會讀取或推算帳戶餘額。精確答案比對會在本機直接判定，不呼叫模型，也不計入 Cloud 用量。
@@ -23,7 +23,14 @@
 | `voc_database.csv` | 單字抽題使用的詞頻資料。 |
 | `Dockerfile`, `compose.yaml` | 建置及執行容器。 |
 | `.env.example` | Docker Compose 與部署環境變數範本。 |
-| `main_quiz.py` | 命令列版練習程式。 |
+
+## 初次使用：資料已隨專案附上
+
+第一次使用不需要自行下載詞頻資料、執行分析或清洗腳本。專案已附上預先整理好的 `voc_database.csv`（目前 2,552 筆詞頻資料）和預設練習題庫 `exam_list.csv`（目前 234 個單字）。Docker 映像會直接複製這兩個 CSV；原始 Wikipedia 大型資料檔、清洗／分析腳本及資料庫備份不會放進映像或 Docker build context。
+
+首次啟動只需準備 Ollama，接著用 Docker Compose 建置並啟動網頁。瀏覽器進入 <http://localhost:5000> 後，按「開始測驗」即可使用內附題庫。
+
+若要使用自己的單字表，請以 UTF-8 編碼編輯專案根目錄的 `exam_list.csv`，保留 `arabic_word,translation` 欄位，再執行 `docker compose up -d --build` 重新建置。單字頻率會從內附的 `voc_database.csv` 查找；新單字若不在其中，仍會以預設權重出題，不需要自行執行分析腳本。
 
 ## 單字表格式
 
@@ -42,17 +49,18 @@ arabic_word,translation
 
 ### 1. 準備 Ollama
 
-安裝並啟動 Ollama。登入帳號以使用 Cloud 模型；若要使用本機模型，請下載 E4B：
+安裝並啟動 Ollama。登入帳號以使用 Cloud 模型；若要使用本機模型，先用 `ollama pull` 下載，之後 GUI 會自動將它列入選單：
 
 ```bash
 ollama signin
-ollama run gemma4:cloud
 ollama pull gemma4:e4b
 ```
 
-只需準備 GUI 選用的模型。Cloud 模型需要可用的 Ollama 帳號；本機模型需要足夠的本機運算資源。
+`gemma4:e4b` 是本機模型範例，可換成其他 Ollama 支援的模型名稱。Cloud 模型需登入 Ollama 帳號；本機模型需要足夠的本機運算資源。
 
-### 2. 使用 Docker Compose（建議）
+GUI 會向 `OLLAMA_API_ENDPOINT` 所指向的 Ollama 服務查詢已下載模型清單（`/api/tags`），約每 15 秒更新一次快取。Docker 部署時，清單來自容器連線到的 Ollama 主機；請在那台主機下載所需模型。選單也會保留 `gemma4:cloud` 和環境設定的預設模型；若 Ollama 無法連線，則無法列出其他已下載模型。
+
+### 2-1. 使用Docker Compose（較為簡易，建議使用本方法。不限平台）
 
 在專案目錄執行：
 
@@ -68,7 +76,9 @@ docker compose up -d --build
 docker compose down
 ```
 
-### 3. 本機 Python 開發
+### 2-2. 不使用Docker啟動網頁GUI（與2-1擇一使用，與Windows系統相容性未知，建議使用Linux/MacOS）
+
+這是 Docker Compose 以外的啟動方式：以下指令會在本機啟動網頁服務，之後仍然透過瀏覽器使用 GUI；它不是終端機測驗模式。一般使用已部署的網站或 Docker 版時，不需要執行本節。
 
 需要 Python 3.10 以上版本。建立虛擬環境並安裝依賴：
 
@@ -128,9 +138,6 @@ docker compose up -d --build
 ```bash
 python3 -c 'import secrets; print(secrets.token_hex(32))'
 ```
-
-請勿將 `.env` 或真實密鑰提交到版本控制。生產環境也必須將 `OLLAMA_API_ENDPOINT` 設為部署服務可連線的 Ollama 位址；`host.docker.internal` 僅適用於本機 Docker 開發。
-
 ## 部署注意事項
 
 建置映像：
@@ -140,7 +147,3 @@ docker build -t vocabulary-speedrunner:latest .
 ```
 
 將映像部署到可執行容器的平台，將 HTTP 流量導向容器的 `5000` 連接埠，並設定 `APP_ENV=production`、`FLASK_SECRET_KEY` 與可連線的 `OLLAMA_API_ENDPOINT`。健康檢查路徑為 `/healthz`。映像不包含 Ollama 模型，也不提供 Ollama 服務；部署環境必須能連到已登入且可用的 Ollama Cloud 或自行管理的 Ollama 主機。避免將未受保護的 Ollama API 暴露至公網。
-
-## 命令列版
-
-`main_quiz.py` 是獨立的終端機練習程式。網頁 GUI 與 Docker 使用 `web_app.py`；命令列版目前使用程式內設定的 Ollama 位址和模型。

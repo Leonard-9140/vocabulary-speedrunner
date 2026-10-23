@@ -10,3 +10,9 @@ arwiki-latest-pages-articles-multistream.xml
 arwiki-latest-pages-articles-multistream.xml.bz2
 wiki_arabic_text.txt
 dev_log
+clean_voc_database_advanced.py
+frequency_analyzer.py
+main_quiz.py
+debug_synonym.py
+test_suite.py
+voc_database_backup.csv

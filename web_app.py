@@ -4,7 +4,9 @@ import csv
 import os
 import random
 import re
+import time
 import unicodedata
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from flask import Flask, flash, redirect, render_template, request, session, url_for
@@ -28,12 +30,6 @@ app.config.update(
 MASTER_DB_FILE = os.environ.get("MASTER_DB_FILE", "voc_database.csv")
 USER_LIST_FILE = os.environ.get("USER_LIST_FILE", "exam_list.csv")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:cloud")
-MODEL_CHOICES = {
-    "gemma4:cloud": "Gemma 4 Cloud",
-    "gemma4:e4b": "Gemma 4 E4B（本機）",
-}
-if OLLAMA_MODEL not in MODEL_CHOICES:
-    MODEL_CHOICES[OLLAMA_MODEL] = f"{OLLAMA_MODEL}（環境設定）"
 OLLAMA_API_ENDPOINT = os.environ.get("OLLAMA_API_ENDPOINT", "http://host.docker.internal:11434/api/chat")
 if APP_ENV == "production" and (
     not OLLAMA_API_ENDPOINT or "host.docker.internal" in OLLAMA_API_ENDPOINT
@@ -43,6 +39,59 @@ OLLAMA_CONNECT_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_CONNECT_TIMEOUT_SE
 OLLAMA_READ_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_READ_TIMEOUT_SECONDS", "600"))
 OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
 WIN_CONDITION = int(os.environ.get("WIN_CONDITION", "5"))
+MODEL_LIST_CACHE_SECONDS = 15
+MODEL_LIST_TIMEOUT_SECONDS = (1, 2)
+_model_list_cache = None
+_model_list_cache_at = 0.0
+
+
+def get_model_choices():
+    """Return Cloud plus models installed on the configured Ollama service."""
+    global _model_list_cache, _model_list_cache_at
+    now = time.monotonic()
+    if _model_list_cache is not None and now - _model_list_cache_at < MODEL_LIST_CACHE_SECONDS:
+        return _model_list_cache.copy()
+
+    choices = {"gemma4:cloud": "Gemma 4 Cloud（雲端）"}
+    if OLLAMA_MODEL != "gemma4:cloud":
+        choices[OLLAMA_MODEL] = f"{OLLAMA_MODEL}（環境預設）"
+
+    endpoint = urlsplit(OLLAMA_API_ENDPOINT)
+    path = endpoint.path.rstrip("/")
+    if path.endswith("/api/chat"):
+        path = path[:-len("/api/chat")] + "/api/tags"
+    else:
+        path = path + "/api/tags"
+    tags_endpoint = urlunsplit((endpoint.scheme, endpoint.netloc, path, "", ""))
+
+    try:
+        response = requests.get(tags_endpoint, timeout=MODEL_LIST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        payload = response.json()
+        models = payload.get("models", []) if isinstance(payload, dict) else []
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            raw_name = model.get("name") or model.get("model") or ""
+            name = raw_name.strip() if isinstance(raw_name, str) else ""
+            if name:
+                if name != "gemma4:cloud":
+                    choices[name] = name
+        _model_list_cache = choices.copy()
+        _model_list_cache_at = now
+    except (requests.RequestException, ValueError, TypeError):
+        if _model_list_cache is not None:
+            _model_list_cache_at = now
+            return _model_list_cache.copy()
+    return choices
+
+
+def get_page_model_choices():
+    choices = get_model_choices()
+    selected = session.get("ollama_model", OLLAMA_MODEL)
+    if selected not in choices:
+        choices[selected] = f"{selected}（目前未列於 Ollama 模型清單）"
+    return choices
 
 
 def load_words():
@@ -153,7 +202,7 @@ def home():
     if not state:
         return render_template("index.html", state=None, question=None, total=0, mastered=0,
                                win_condition=WIN_CONDITION,
-                               model_choices=MODEL_CHOICES,
+                               model_choices=get_page_model_choices(),
                                selected_model=session.get("ollama_model", OLLAMA_MODEL))
     try:
         words = load_words()
@@ -175,7 +224,7 @@ def home():
     return render_template("index.html", state=state, question=question,
                            total=len(words), mastered=sum(count >= WIN_CONDITION for count in state["correct"]),
                            win_condition=WIN_CONDITION,
-                           model_choices=MODEL_CHOICES,
+                           model_choices=get_page_model_choices(),
                            selected_model=session.get("ollama_model", OLLAMA_MODEL))
 
 
@@ -194,7 +243,7 @@ def start():
 @app.post("/model")
 def change_model():
     selected_model = request.form.get("model", "")
-    if selected_model not in MODEL_CHOICES:
+    if selected_model not in get_model_choices():
         flash("無效的模型選擇。", "error")
     else:
         session["ollama_model"] = selected_model
