@@ -8,8 +8,8 @@ import json     # 用於解析 AI 的回覆
 MASTER_DB_FILE = "voc_database.csv"  # 我們的通用詞頻資料庫
 USER_LIST_FILE = "exam_list.csv"     # 使用者提供的考試單字表
 WIN_CONDITION = 5                    # 每個單字需要答對幾次才算完成
-OLLAMA_MODEL = "gemma3:4b"            # 指定使用 gemma3:4b 模型，以確保穩定的語義辨識能力
-OLLAMA_API_ENDPOINT = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "gemma4:cloud"         # Ollama Cloud 批改模型
+OLLAMA_API_ENDPOINT = "http://localhost:11434/api/chat"
 
 def clear_screen():
     """清除終端機畫面，讓介面更清爽"""
@@ -46,7 +46,7 @@ Feedback: [簡短的修正建議，若完全正確則寫 None]
     
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": prompt,
+        "messages": [{"role": "user", "content": prompt}],
         "stream": False 
     }
 
@@ -56,7 +56,7 @@ Feedback: [簡短的修正建議，若完全正確則寫 None]
         response.raise_for_status() 
         
         result_json = response.json()
-        llm_response = result_json.get("response", "").strip()
+        llm_response = result_json.get("message", {}).get("content", "").strip()
 
         # 解析 Decision
         decision_line = [line for line in llm_response.split('\n') if "Decision:" in line]

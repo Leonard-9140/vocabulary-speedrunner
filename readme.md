@@ -1,85 +1,146 @@
-# Vocabulary Speedrunner — AI-based 高效率單字記憶引擎
+# Arabic Sprint（Vocabulary Speedrunner）
 
-> 以真實世界的詞頻為導航，以本地 AI 為家教，讓你的單字背誦像「Speedrun」一樣迅速準確。
+以「看中文寫阿拉伯文」為方向的單字練習工具。網頁 GUI 支援阿拉伯文由右至左顯示、Ollama 本機或 Cloud 模型批改，並以詞頻權重和答題表現安排複習。
 
-## 專案介紹
+## 功能
 
-**Vocabulary Speedrunner** 是一款專為高效率學習者設計的次世代單字記憶輔助工具。它摒棄了傳統單字記憶app的死板規則，引入了兩大核心技術：**大規模語料庫詞頻分析**與**本地大型語言模型 (LLM) 語意判斷**。
+- **中文提示、阿拉伯文作答**：輸入框和答案使用 RTL 排版，適合阿拉伯文閱讀與輸入。
+- **切換批改模型**：頁面右上方可選 `gemma4:cloud` 或 `gemma4:e4b`。預設為 Cloud；切換模型不會重設當前測驗。
+- **依答題表現抽題**：答錯的單字提高再次出現機率；每個單字答對達指定次數後即視為精通。
+- **Cloud token 用量表**：測驗中顯示本次測驗由此 GUI 發出的 Cloud 請求數，以及 Ollama 回報的輸入、輸出和合計 tokens。若部分回應沒有 token 指標，頁面會標示統計不完整。
+- **Docker 部署**：提供 Dockerfile、Compose 設定與健康檢查端點 `/healthz`。
 
-本專案的核心是解決學習效率的根本問題：在有限的時間內，應該先學哪個單字？以及如何判斷一個單字「真正學會了」？
+> 用量表只統計本次 GUI 測驗的 Cloud 請求，不代表 Ollama 帳戶方案、帳戶總用量或剩餘額度。Ollama 的回應用量指標是單次請求的 token 數；本專案不會讀取或推算帳戶餘額。精確答案比對會在本機直接判定，不呼叫模型，也不計入 Cloud 用量。
 
-## 核心功能
+## 專案檔案
 
--   **基於真實語料庫的權重分配**：程式使用從**阿拉伯語維基百科**全量分析得出的詞頻資料庫 (`voc_database.csv`)，自動為您的單字表分配初始抽選權重，讓您優先學習高頻單字。
+| 檔案 | 用途 |
+|---|---|
+| `web_app.py` | Flask 網頁程式、題目流程、Ollama 批改及 token 用量累計。 |
+| `templates/index.html` | 測驗頁面、模型選單和用量表。 |
+| `static/` | GUI 樣式與瀏覽器端互動程式。 |
+| `exam_list.csv` | 本次練習的阿拉伯文與中文對照表。 |
+| `voc_database.csv` | 單字抽題使用的詞頻資料。 |
+| `Dockerfile`, `compose.yaml` | 建置及執行容器。 |
+| `.env.example` | Docker Compose 與部署環境變數範本。 |
+| `main_quiz.py` | 命令列版練習程式。 |
 
--   **AI 語義判斷批改**：我們不再使用簡單的「對/錯」按鈕。當您輸入答案後，程式會呼叫一個在您電腦上運行的**本地語言模型** (例如 `gemma4:e4b`) 來進行仿人類的批改。它能理解同義詞、近義詞甚至輕微的拼寫錯誤，讓學習過程更貼近客製化課堂體驗。
+## 單字表格式
 
--   **動態智慧抽考 (SRS)**：採用間隔重複系統 (Spaced Repetition System) 的核心概念。答對的單字會降低出現機率，答錯的單字則會被更頻繁地提問，集中火力解決您的學習弱點。
+`exam_list.csv` 使用 UTF-8 編碼，第一列為欄位名稱：
 
--   **完全本機運行，保障隱私**：從詞頻分析到 AI 模型判斷，所有操作都在您的個人電腦上完成。您的學習資料和進度完全私人，無需聯網，也無需擔心資料外洩。
+```csv
+arabic_word,translation
+كتاب,書本
+سيارة,汽車
+بيت,房子
+```
 
-- **高度客製化的學習目標**：您只需準備一個簡單的 `exam_list.csv` 檔案，即可開始針對任何考試或課程進行最高效率的衝刺學習。
+`voc_database.csv` 提供詞頻權重。若題庫中的單字不在詞頻資料庫，程式會以預設權重納入練習。
 
-## 詞彙閾值理論依據 (Lexical Threshold Theory)
+## 啟動方式
 
-本專案預設擷取前 **5,000 個高頻單字** 作為核心資料庫，這並非隨機設定，而是基於應用語言學中的「詞彙覆蓋率」研究：
+### 1. 準備 Ollama
 
--   **95% 閱讀門檻 (Minimal Threshold)**：研究指出，掌握約 **3,000 至 5,000 個詞族 (Word Families)** 能達到約 95% 的文本覆蓋率。這是學習者能夠在不頻繁查字典的情況下，透過上下文理解非專業性文本（如維基百科、新聞）的關鍵臨界點。
--   **引用文獻**：
-    -   Laufer, B. (1989). What percentage of text-lexis is essential for comprehension? In C. Lauren & M. Nordman (Eds.), *Special Language: From Humans Thinking to Thinking Machines* (pp. 316–323). Clevedon: Multilingual Matters.
-    -   Laufer, B., & Ravenhorst-Kalovski, G. C. (2010). Lexical threshold revisited: Lexical coverage, learners' vocabulary size and reading comprehension. *Reading in a Foreign Language*, 22(1), 15–30.
-    -   Nation, I. S. P. (2001). *Learning Vocabulary in Another Language*. Cambridge University Press.
-
-## 技術規格
-
--   **主要程式語言與版本**: Python 3.10
--   **核心函式庫**: Pandas, NLTK, Gensim, Requests, Qalsadi
--   **本機 AI 引擎**: Ollama
--   **使用之本地語言模型**: Google Gemma (`gemma4:e4b`)
--   **詞頻分析資料來源**: 阿拉伯語維基百科 (Wikipedia Dump)
--   **開發環境**: Ubuntu 24.04 LTS
-
-## 如何使用
-
-請依照以下步驟設定並啟動您的 Vocabulary Speedruner。
-
-### 步驟一：環境設定
-
-1.  **確認 Python 版本**：確保您的電腦中安裝了 Python 3.10 或以上版本。
-2.  **安裝必要函式庫**：打開終端機 (Terminal / PowerShell)，執行以下指令：
-    ```bash
-    pip install pandas requests nltk gensim qalsadi
-    ```
-    *如果您在執行詞頻分析腳本時已安裝過 NLTK 和 Gensim，則無需重複安裝。*
-
-### 步驟二：準備 AI 引擎 (Ollama)
-
-1.  **安裝 Ollama**：前往 [Ollama 官網](https://ollama.com) 下載並安裝適合您作業系統的程式。
-2.  **下載 AI 模型**：在終端機中執行以下指令來下載我們推薦的模型 `gemma4:e4b`。
-    ```bash
-    ollama run gemma4:e4b
-    ```
-    *下載完成後，您可以輸入 `/bye` 退出 Ollama 的對話模式。請確保 Ollama 服務在您學習時於背景運行。*
-
-### 步驟三：準備單字表
-
-請確保您的專案資料夾中包含以下 **3 個檔案**：
-
-1.  **`voc_database.csv`**: 我們之前從維基百科分析出的主詞頻資料庫。
-2.  **`exam_list.csv`**: 您本次需要學習的單字列表。請確保其格式如下 (第一行為標頭，且檔案需為 **UTF-8** 編碼)：
-    ```csv
-    arabic_word,translation
-    كتاب,書本
-    سيارة,汽車
-    بيت,房子
-    ```
-3.  **`main_quiz.py`**: 我們的 AI 抽考主程式。
-
-### 步驟四：開始學習！
-
-一切準備就緒！在終端機中，執行以下指令啟動程式：
+安裝並啟動 Ollama。登入帳號以使用 Cloud 模型；若要使用本機模型，請下載 E4B：
 
 ```bash
-python main_quiz.py
-# 如果您需要指定 Python 3.10 版本
-# py -3.10 main_quiz.py
+ollama signin
+ollama run gemma4:cloud
+ollama pull gemma4:e4b
+```
+
+只需準備 GUI 選用的模型。Cloud 模型需要可用的 Ollama 帳號；本機模型需要足夠的本機運算資源。
+
+### 2. 使用 Docker Compose（建議）
+
+在專案目錄執行：
+
+```bash
+docker compose up -d --build
+```
+
+瀏覽器開啟 <http://localhost:5000>。Compose 會將容器連到主機的 Ollama 服務（預設 `host.docker.internal:11434`）。若系統使用舊版 Compose，也可用 `docker-compose up -d --build`；遇到舊版 Compose 重建容器錯誤時，請改用 Docker Compose v2 的 `docker compose` 指令。
+
+停止服務：
+
+```bash
+docker compose down
+```
+
+### 3. 本機 Python 開發
+
+需要 Python 3.10 以上版本。建立虛擬環境並安裝依賴：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+在 Linux/macOS 上，設定 Ollama 位址並啟動：
+
+```bash
+export OLLAMA_API_ENDPOINT=http://localhost:11434/api/chat
+python web_app.py
+```
+
+瀏覽器開啟 <http://localhost:5000>。Windows PowerShell 可用 `$env:OLLAMA_API_ENDPOINT="http://localhost:11434/api/chat"` 設定該變數。
+
+## 使用頁面
+
+1. 按「開始測驗」。
+2. 根據中文提示輸入阿拉伯文。
+3. 頁面會先直接比對答案；需要語意判斷時才呼叫目前選用的 Ollama 模型。
+4. 查看批改結果和 Cloud token 用量。若選用本機 E4B，Cloud 用量表不會因本機請求增加。
+5. 按「下一題」繼續；可在右上角切換模型，或重新開始本次測驗。
+
+測驗進度使用瀏覽器簽章 Cookie 保存，不需要額外資料庫。Cloud 模型會收到題目中文、目標阿拉伯文與使用者答案；使用 Cloud 即表示這些內容會送至 Ollama Cloud 處理。
+
+## 設定
+
+Compose 可透過專案根目錄的 `.env` 設定下列變數。可先複製範本：
+
+```bash
+cp .env.example .env
+```
+
+`.env.example` 是生產部署範本，預設 `APP_ENV=production`。啟動前必須填入 `FLASK_SECRET_KEY` 和可從容器連線的 `OLLAMA_API_ENDPOINT`。若只是本機測試，可刪除 `.env` 讓 Compose 使用開發預設，或將 `APP_ENV` 設為 `development` 並使用本機適用的 Ollama 位址。
+
+| 變數 | 預設值 | 說明 |
+|---|---|---|
+| `OLLAMA_MODEL` | `gemma4:cloud` | 預設模型；頁面仍可切換到另一個已設定選項。 |
+| `OLLAMA_API_ENDPOINT` | `http://host.docker.internal:11434/api/chat` | 容器可連線的 Ollama `/api/chat` 位址。 |
+| `OLLAMA_CONNECT_TIMEOUT_SECONDS` | `10` | 建立 Ollama 連線的等待秒數。 |
+| `OLLAMA_READ_TIMEOUT_SECONDS` | `600` | 等待模型完成回應的秒數。慢速本機模型可適度提高。 |
+| `OLLAMA_KEEP_ALIVE` | `30m` | Ollama 保留已載入模型的時間。 |
+| `APP_ENV` | Compose 為 `development` | 生產環境請設為 `production`。 |
+| `FLASK_SECRET_KEY` | 空白 | 生產環境必須設定至少 32 字元的隨機密鑰。 |
+
+設定變更後重建容器：
+
+```bash
+docker compose up -d --build
+```
+
+產生密鑰：
+
+```bash
+python3 -c 'import secrets; print(secrets.token_hex(32))'
+```
+
+請勿將 `.env` 或真實密鑰提交到版本控制。生產環境也必須將 `OLLAMA_API_ENDPOINT` 設為部署服務可連線的 Ollama 位址；`host.docker.internal` 僅適用於本機 Docker 開發。
+
+## 部署注意事項
+
+建置映像：
+
+```bash
+docker build -t vocabulary-speedrunner:latest .
+```
+
+將映像部署到可執行容器的平台，將 HTTP 流量導向容器的 `5000` 連接埠，並設定 `APP_ENV=production`、`FLASK_SECRET_KEY` 與可連線的 `OLLAMA_API_ENDPOINT`。健康檢查路徑為 `/healthz`。映像不包含 Ollama 模型，也不提供 Ollama 服務；部署環境必須能連到已登入且可用的 Ollama Cloud 或自行管理的 Ollama 主機。避免將未受保護的 Ollama API 暴露至公網。
+
+## 命令列版
+
+`main_quiz.py` 是獨立的終端機練習程式。網頁 GUI 與 Docker 使用 `web_app.py`；命令列版目前使用程式內設定的 Ollama 位址和模型。

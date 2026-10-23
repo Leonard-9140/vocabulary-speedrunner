@@ -1,8 +1,8 @@
 import requests
 import json
 
-OLLAMA_MODEL = "gemma3:4b"
-OLLAMA_API_ENDPOINT = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "gemma4:cloud"
+OLLAMA_API_ENDPOINT = "http://localhost:11434/api/chat"
 
 def debug_grading(question_word, correct_answer, user_answer):
     prompt = f"""你是一位嚴謹但開明的語言老師。
@@ -14,14 +14,14 @@ def debug_grading(question_word, correct_answer, user_answer):
 請判斷學生的回答是否為正確翻譯、語意相近的同義詞（例如「汽車」與「車子」），或在中文語境下可被接受的正確答案。
 請只回覆一個單詞："Correct" 或 "Incorrect"。
 """
-    payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+    payload = {"model": OLLAMA_MODEL, "messages": [{"role": "user", "content": prompt}], "stream": False}
     
     print(f"\n--- 偵錯開始: {question_word} -> {user_answer} ---")
     try:
         response = requests.post(OLLAMA_API_ENDPOINT, json=payload)
         response.encoding = 'utf-8'
         result_json = response.json()
-        raw_response = result_json.get("response", "")
+        raw_response = result_json.get("message", {}).get("content", "")
         print(f"原始 AI 回覆: |{raw_response}|")
         
         llm_decision = raw_response.strip().replace(".", "").replace("!", "")

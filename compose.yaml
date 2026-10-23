@@ -1,0 +1,17 @@
+services:
+  vocabulary-speedrunner:
+    build: .
+    container_name: vocabulary-speedrunner
+    ports:
+      - "5000:5000"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:cloud}
+      OLLAMA_API_ENDPOINT: ${OLLAMA_API_ENDPOINT:-http://host.docker.internal:11434/api/chat}
+      OLLAMA_CONNECT_TIMEOUT_SECONDS: ${OLLAMA_CONNECT_TIMEOUT_SECONDS:-10}
+      OLLAMA_READ_TIMEOUT_SECONDS: ${OLLAMA_READ_TIMEOUT_SECONDS:-600}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

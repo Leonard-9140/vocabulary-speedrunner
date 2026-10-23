@@ -4,8 +4,8 @@ import pandas as pd
 import os
 
 # 模擬 main_quiz.py 中的設定
-OLLAMA_MODEL = "gemma3:4b"
-OLLAMA_API_ENDPOINT = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "gemma4:cloud"
+OLLAMA_API_ENDPOINT = "http://localhost:11434/api/chat"
 
 def test_ollama_connectivity():
     print("--- 測試 1: Ollama API 連線 ---")
@@ -37,9 +37,9 @@ def grade_answer_mock(question_word, correct_answer, user_answer):
 請判斷學生的回答是否為正確翻譯、語意相近的同義詞（例如「汽車」與「車子」），或在中文語境下可被接受的正確答案。
 請只回覆一個單詞："Correct" 或 "Incorrect"。
 """
-    payload = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
+    payload = {"model": OLLAMA_MODEL, "messages": [{"role": "user", "content": prompt}], "stream": False}
     response = requests.post(OLLAMA_API_ENDPOINT, json=payload)
-    llm_decision = json.loads(response.text).get("response", "").strip().replace(".", "").replace("!", "")
+    llm_decision = json.loads(response.text).get("message", {}).get("content", "").strip().replace(".", "").replace("!", "")
     return llm_decision
 
 def test_llm_grading():

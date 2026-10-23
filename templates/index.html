@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1ea">
+  <title>Arabic Sprint｜阿拉伯語單字練習</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('home') }}"><span class="brand-mark">ع</span><span>Arabic Sprint</span></a>
+      <form class="model-switcher" method="post" action="{{ url_for('change_model') }}">
+        <label for="model-choice">批改模型</label>
+        <select id="model-choice" name="model" dir="ltr">
+          {% for model_id, model_label in model_choices.items() %}
+            <option value="{{ model_id }}" {% if model_id == selected_model %}selected{% endif %}>{{ model_label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">套用</button>
+      </form>
+    </header>
+
+    <section class="hero">
+      <p class="eyebrow">VOCABULARY TRAINING</p>
+      <h1>讓每個單字，<em>記得更牢。</em></h1>
+      <p class="intro">根據中文意思寫出阿拉伯文。答對的單字會逐步降低出現頻率，答錯時則會再次練習。</p>
+    </section>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}<div class="notices">{% for category, message in messages %}<p class="notice {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+    {% endwith %}
+
+    {% if not state %}
+      <section class="card welcome-card">
+        <div class="welcome-icon">✳</div>
+        <div><p class="eyebrow">READY WHEN YOU ARE</p><h2>開始今天的練習</h2><p class="muted">每個單字需要累計答對 {{ win_condition|default(5) }} 次。可在右上角切換 Ollama 批改模型。</p></div>
+        <form method="post" action="{{ url_for('start') }}"><button class="button primary" type="submit">開始測驗 <span>↗</span></button></form>
+      </section>
+    {% elif question %}
+      <section class="progress-area">
+        <div class="progress-label"><span>學習進度</span><strong>{{ mastered }} <small>/ {{ total }} 精通</small></strong></div>
+        <div class="progress-track"><span style="width: {{ (mastered / total * 100) if total else 0 }}%"></span></div>
+      </section>
+      <section class="card usage-card" aria-labelledby="usage-title">
+        <div class="usage-heading"><div><p class="eyebrow">OLLAMA CLOUD · 本次測驗</p><h2 id="usage-title">Cloud 模型用量</h2></div><span class="usage-calls">{{ state.cloud_calls }} 次請求</span></div>
+        <table class="usage-table"><thead><tr><th scope="col">Token 統計</th><th scope="col">用量</th></tr></thead><tbody>
+          <tr><th scope="row">輸入 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_input_tokens) }}</td></tr>
+          <tr><th scope="row">輸出 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_output_tokens) }}</td></tr>
+          <tr class="usage-total"><th scope="row">合計 tokens</th><td>{{ '{:,.0f}'.format(state.cloud_input_tokens + state.cloud_output_tokens) }}{% if not state.cloud_usage_complete %}<sup>*</sup>{% endif %}</td></tr>
+        </tbody></table>
+        <p class="usage-note">僅統計本次測驗中 GUI 的 gemma4:cloud 請求；精確比對直接判分，不會呼叫模型。這不是 Ollama 帳戶方案或剩餘額度。</p>
+        {% if not state.cloud_usage_complete %}<p class="usage-note usage-warning">* 部分回應未提供 token 數，以上合計為已回報部分。</p>{% endif %}
+      </section>
+      <section class="card quiz-card">
+        <div class="question-meta"><span class="question-number">今日練習</span><span class="frequency">語料詞頻權重 <b>{{ '{:,.0f}'.format(question.frequency) }}</b></span></div>
+        <p class="prompt-label">這個中文意思，阿拉伯文怎麼說？</p>
+        <div class="meaning" lang="zh-Hant">{{ question.translation }}</div>
+        <form class="answer-form" method="post" action="{{ url_for('answer') }}">
+          <label for="answer">你的阿拉伯文答案</label>
+          <div class="input-wrap">
+            <span class="input-glyph" aria-hidden="true">ع</span>
+            <input id="answer" name="answer" type="text" lang="ar" dir="rtl" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="اكتب إجابتك هنا" {% if state.answered %}disabled{% else %}autofocus{% endif %}>
+          </div>
+          {% if not state.answered %}<button class="button primary submit-button" type="submit">確認答案 <span>↗</span></button>{% endif %}
+          <p class="grading-status" aria-live="polite" hidden>正在等待 Ollama 批改，模型運算可能需要一些時間…</p>
+        </form>
+        {% if state.feedback %}
+          <div class="feedback {{ 'good' if state.feedback_correct else 'bad' }}" role="status"><span class="feedback-icon">{{ '✓' if state.feedback_correct else '!' }}</span><div><strong>{{ state.feedback }}</strong><p>正確寫法：<b class="arabic-answer" lang="ar" dir="rtl">{{ question.arabic_word }}</b><span class="count">答對 {{ state.correct[state.current] }} / {{ win_condition }} 次</span></p></div></div>
+          <form method="post" action="{{ url_for('next_question') }}"><button class="button primary next-button" type="submit">下一題 <span>→</span></button></form>
+        {% endif %}
+      </section>
+      <form class="reset-form" method="post" action="{{ url_for('reset') }}"><button class="text-button" type="submit">重新開始本次測驗</button></form>
+    {% else %}
+      <section class="card complete-card"><div class="complete-star">✦</div><p class="eyebrow">SESSION COMPLETE</p><h2>太棒了，全部精通！</h2><p class="muted">本次清單中的 {{ total }} 個單字都已達成練習目標。</p><form method="post" action="{{ url_for('start') }}"><button class="button primary" type="submit">再練習一次 <span>↗</span></button></form></section>
+    {% endif %}
+    <footer><span>OLLAMA LOCAL OR CLOUD · YOUR PROGRESS STAYS IN THIS BROWSER</span><span>阿拉伯文顯示方向已設定為 RTL</span></footer>
+  </main>
+</body>
+</html>
