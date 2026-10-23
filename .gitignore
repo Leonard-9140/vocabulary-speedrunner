@@ -11,3 +11,4 @@ FILE_INVENTORY.md
 quiz_progress.sqlite3*
 *.sqlite*
 *.db
+test_suite.py
