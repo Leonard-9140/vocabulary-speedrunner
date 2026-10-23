@@ -2,6 +2,8 @@
 
 Arabic Sprint 是一個以 Docker 執行的阿拉伯文詞彙 speedrun 練習工具：畫面提供中文意思，使用者輸入阿拉伯文。它結合 Wiki 詞頻新字抽選、短期重練與 FSRS-4.5 長期複習，並使用 Ollama 本機或 Cloud 模型判斷非完全相同的答案。
 
+For ([English Instructions](https://github.com/Leonard-9140/vocabulary-speedrunner/blob/main/README.en.md))
+
 ## 功能與頁面布局
 
 - **中文提示、阿拉伯文作答**：輸入框和答案採 RTL 排版。
