@@ -2,7 +2,7 @@
 
 Arabic Sprint is an Arabic vocabulary speedrun practice tool that runs in Docker. The screen shows a Chinese meaning, and the user types the Arabic word. It combines new-word selection based on Wikipedia word frequency, short-term re-practice, and long-term FSRS-4.5 review, and it uses a local or cloud Ollama model to judge answers that are not an exact match.
 
-For ([Chinese(Traditional) instructions](https://github.com/Leonard-9140/vocabulary-speedrunner/tree/main))
+([Chinese(Traditional) instructions](https://github.com/Leonard-9140/vocabulary-speedrunner/tree/main))
 
 ## Features and Page Layout
 
