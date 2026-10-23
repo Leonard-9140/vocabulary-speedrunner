@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f1ea">
-  <title>Arabic Sprint｜阿拉伯語單字練習</title>
+  <title>Arabic Vocabulary Speedrun｜阿拉伯語單字練習</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
@@ -25,8 +25,8 @@
 
     <section class="hero">
       <p class="eyebrow">VOCABULARY TRAINING</p>
-      <h1>讓每個單字，<em>記得更牢。</em></h1>
-      <p class="intro">根據中文意思寫出阿拉伯文；每次作答後，FSRS-4.5 會依記憶狀態安排複習。</p>
+      <h1>在最短時間裡，<em>記得最多。</em></h1>
+      <p class="intro">根據中文意思寫出阿拉伯文答案；每次作答後，根據FSRS-4.5所修改的演算法將會依記憶狀態安排複習。</p>
     </section>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -36,7 +36,7 @@
     {% if not state %}
       <section class="card welcome-card">
         <div class="welcome-icon">✳</div>
-        <div><p class="eyebrow">READY WHEN YOU ARE</p><h2>開始今天的練習</h2><p class="muted">新單字依詞頻安排；答題後由 FSRS-4.5 根據記憶穩定度排定複習時間。學習紀錄會保存在此瀏覽器。</p></div>
+        <div><p class="eyebrow">READY WHEN YOU ARE</p><h2>開始今天的練習</h2><p class="muted">新單字依wikipedia dump所分析之預設詞頻安排；答題後由演算法根據記憶穩定度排定複習時間。學習紀錄會保存在此瀏覽器。</p></div>
         <form method="post" action="{{ url_for('start') }}"><button class="button primary" type="submit">開始測驗 <span>↗</span></button></form>
       </section>
       {% if has_history %}<form class="reset-form" method="post" action="{{ url_for('reset_progress') }}" onsubmit="return confirm('確定清除此瀏覽器的所有單字答題紀錄並重新開始？此操作無法復原。')"><button class="text-button" type="submit">清除學習紀錄並重新開始</button></form>{% endif %}
@@ -60,10 +60,10 @@
         {% if state.paused %}
           <div class="pause-panel"><p class="eyebrow">TIMER PAUSED</p><h2>測驗已暫停</h2><p>暫停期間不會計入作答時間，恢復後可繼續回答目前題目。</p><form method="post" action="{{ url_for('toggle_pause') }}"><button class="button primary" type="submit">恢復作答並繼續計時</button></form></div>
         {% else %}
-        <p class="prompt-label">這個中文意思，阿拉伯文怎麼說？</p>
+        <p class="prompt-label">這個阿拉伯文怎麼說？</p>
         <div class="meaning" lang="zh-Hant">{{ question.translation }}</div>
         <form class="answer-form" method="post" action="{{ url_for('answer') }}">
-          <label for="answer">你的阿拉伯文答案</label>
+          <label for="answer">你的答案</label>
           <div class="input-wrap">
             <span class="input-glyph" aria-hidden="true">ع</span>
             <input id="answer" name="answer" type="text" lang="ar" dir="rtl" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="اكتب إجابتك هنا" {% if state.answered %}disabled{% else %}autofocus{% endif %}>
